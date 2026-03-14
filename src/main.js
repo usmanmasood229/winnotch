@@ -13,11 +13,9 @@ if (!app.requestSingleInstanceLock()) { app.quit(); process.exit(0); }
 
 let win, tray;
 
-const NOTCH_H = 148;
+const NOTCH_H = 160;
 
-function getPrimary() {
-  return screen.getPrimaryDisplay();
-}
+function getPrimary() { return screen.getPrimaryDisplay(); }
 
 function createWindow() {
   const { bounds } = getPrimary();
@@ -47,9 +45,7 @@ function createWindow() {
   });
 
   win.loadFile(path.join(__dirname, 'index.html'));
-
   win.setIgnoreMouseEvents(true, { forward: true });
-
   win.setAlwaysOnTop(true, 'screen-saver', 1);
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 
@@ -74,7 +70,7 @@ function refit() {
 ipcMain.on('mouse-enter', () => win?.setIgnoreMouseEvents(false));
 ipcMain.on('mouse-leave', () => win?.setIgnoreMouseEvents(true, { forward: true }));
 
-// CPU + RAM stats
+// CPU + RAM
 function cpuSample() {
   let idle = 0, total = 0;
   const cpus = os.cpus();
@@ -96,151 +92,88 @@ ipcMain.handle('get-stats', async () => {
   return { cpu, ram: Math.round((used / total) * 100) };
 });
 
-// IMPROVED MEDIA DETECTION - Multiple methods
-const PS_MEDIA_SCRIPT = `
-# Method 1: Try SMTC first
+// Media - enumerate ALL SMTC sessions and pick best (Playing > Paused, Chrome boosted)
+const PS_MEDIA = `
 try {
-  Add-Type -AssemblyName System.Runtime.WindowsRuntime -ErrorAction Stop
-  $asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.IsGenericMethod })[0]
-  function Await($WinRtTask, $ResultType) {
-    $asTask = $asTaskGeneric.MakeGenericMethod($ResultType)
-    $netTask = $asTask.Invoke($null, @($WinRtTask))
-    $netTask.Wait(-1) | Out-Null
-    $netTask.Result
+  Add-Type -AssemblyName System.Runtime.WindowsRuntime
+  $m = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.IsGenericMethod -and $_.GetParameters().Count -eq 1 })[0]
+  function WA($t,$r){ $x=$m.MakeGenericMethod($r).Invoke($null,@($t)); $x.Wait(-1)|Out-Null; $x.Result }
+  [void][Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager,Windows.Media.Control,ContentType=WindowsRuntime]
+  $mgr = WA ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
+  $sessions = $mgr.GetSessions()
+  if($sessions.Count -eq 0){ Write-Output '{}'; exit }
+  $Playing=[Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus]::Playing
+  $Paused=[Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus]::Paused
+  $best=$null; $bestScore=0
+  foreach($s in $sessions){
+    try{
+      $pb=$s.GetPlaybackInfo()
+      $score=1
+      if($pb.PlaybackStatus -eq $Playing){$score=3}
+      elseif($pb.PlaybackStatus -eq $Paused){$score=2}
+      $id=$s.SourceAppUserModelId
+      if($id -match 'chrome|msedge|edge|firefox'){$score+=10}
+      if($score -gt $bestScore){$bestScore=$score;$best=$s}
+    }catch{}
   }
-  
-  [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager,Windows.Media.Control,ContentType=WindowsRuntime] | Out-Null
-  $manager = Await ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
-  $session = $manager.GetCurrentSession()
-  
-  if ($session -ne $null) {
-    $mediaProps = Await ($session.TryGetMediaPropertiesAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties])
-    $timeline = $session.GetTimelineProperties()
-    $playback = $session.GetPlaybackInfo()
-    $isPlaying = $playback.PlaybackStatus -eq [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus]::Playing
-    
-    $position = [math]::Floor($timeline.Position.TotalSeconds)
-    $endTime = [math]::Floor($timeline.EndTime.TotalSeconds)
-    
-    $thumbnail = $mediaProps.Thumbnail
-    $thumbnailBase64 = ""
-    if ($thumbnail -ne $null) {
-      try {
-        $streamRef = $thumbnail
-        $randomAccessStream = Await ($streamRef.OpenReadAsync()) ([Windows.Storage.Streams.IRandomAccessStream])
-        $size = $randomAccessStream.Size
-        $reader = [Windows.Storage.Streams.DataReader]::CreateDataReader($randomAccessStream)
-        Await ($reader.LoadAsync([uint32]$size)) ([uint32])
-        $buffer = New-Object byte[] $size
-        $reader.ReadBytes($buffer)
-        $thumbnailBase64 = [Convert]::ToBase64String($buffer)
-        $reader.Dispose()
-        $randomAccessStream.Dispose()
-      } catch {
-        $thumbnailBase64 = ""
+  if($best -eq $null){ Write-Output '{}'; exit }
+  $props=WA ($best.TryGetMediaPropertiesAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties])
+  $tl=$best.GetTimelineProperties()
+  $pb2=$best.GetPlaybackInfo()
+  $isPlaying=($pb2.PlaybackStatus -eq $Playing)
+  $pos=[math]::Floor($tl.Position.TotalSeconds)
+  $dur=[math]::Floor($tl.EndTime.TotalSeconds)
+  $art=''
+  if($props.Thumbnail -ne $null){
+    try{
+      [void][Windows.Storage.Streams.IRandomAccessStream,Windows.Storage.Streams,ContentType=WindowsRuntime]
+      [void][Windows.Storage.Streams.DataReader,Windows.Storage.Streams,ContentType=WindowsRuntime]
+      $stream=WA ($props.Thumbnail.OpenReadAsync()) ([Windows.Storage.Streams.IRandomAccessStream])
+      $sz=[uint32]$stream.Size
+      if($sz -gt 0 -and $sz -lt 2097152){
+        $dr=[Windows.Storage.Streams.DataReader]::CreateDataReader($stream)
+        WA ($dr.LoadAsync($sz)) ([uint32])|Out-Null
+        $buf=New-Object byte[] $sz
+        $dr.ReadBytes($buf)
+        $art=[Convert]::ToBase64String($buf)
+        $dr.Dispose()
       }
-    }
-    
-    $result = @{
-      title = $mediaProps.Title
-      artist = $mediaProps.Artist
-      album = $mediaProps.AlbumTitle
-      playing = $isPlaying
-      pos = $position
-      dur = $endTime
-      src = $session.SourceAppUserModelId
-      art = $thumbnailBase64
-    }
-    $json = $result | ConvertTo-Json -Compress
-    Write-Output $json
-    exit
+      $stream.Dispose()
+    }catch{$art=''}
   }
-} catch {
-  # SMTC failed, try next method
-}
-
-# Method 2: Try to get Chrome/Edge media sessions
-try {
-  $chromeSessions = Get-Process | Where-Object { $_.ProcessName -match 'chrome|msedge|firefox' } | Select-Object -First 1
-  if ($chromeSessions) {
-    # Return a placeholder to indicate browser is playing something
-    $result = @{
-      title = "Media playing in browser"
-      artist = "Click media controls in browser"
-      album = ""
-      playing = $true
-      pos = 0
-      dur = 0
-      src = "Browser"
-      art = ""
-    }
-    $json = $result | ConvertTo-Json -Compress
-    Write-Output $json
-    exit
-  }
-} catch {}
-
-# No media found
-Write-Output "{}"
+  $r=[ordered]@{title=[string]$props.Title;artist=[string]$props.Artist;album=[string]$props.AlbumTitle;playing=$isPlaying;pos=$pos;dur=$dur;src=[string]$best.SourceAppUserModelId;art=$art}
+  Write-Output ($r|ConvertTo-Json -Compress -Depth 1)
+}catch{ Write-Output '{}' }
 `.trim();
+
+const PS_CMD = (function() {
+  const buf = Buffer.from(PS_MEDIA, 'utf16le');
+  return `powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand ${buf.toString('base64')}`;
+})();
 
 ipcMain.handle('get-media', () => new Promise(resolve => {
   if (process.platform !== 'win32') return resolve(null);
-  
-  const psCommand = PS_MEDIA_SCRIPT.replace(/"/g, '\\"').replace(/\r?\n/g, ' ');
-  
-  exec(
-    `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "& { ${psCommand} }"`,
-    { 
-      timeout: 3000, 
-      windowsHide: true, 
-      maxBuffer: 1024 * 1024,
-      env: { ...process.env, POWERSHELL_TELEMETRY_OPTOUT: '1' }
-    },
-    (err, stdout, stderr) => {
-      const raw = (stdout || '').trim();
-      if (err || !raw || raw === '{}') {
-        // Try one more method - check for any audio playing
-        exec('powershell -Command "(Get-Process | Where-Object { $_.MainWindowTitle -ne \"\" -and $_.MainWindowTitle -match \"YouTube|Spotify|Music\" }).MainWindowTitle | Select-Object -First 1"',
-          (err2, stdout2) => {
-            if (!err2 && stdout2.trim()) {
-              resolve({
-                title: "Media Playing",
-                artist: stdout2.trim(),
-                album: "",
-                playing: true,
-                pos: 0,
-                dur: 0,
-                src: "Browser",
-                art: ""
-              });
-            } else {
-              resolve(null);
-            }
-          }
-        );
-        return;
-      }
-      
-      try {
-        const d = JSON.parse(raw);
-        if (!d || !d.title) return resolve(null);
-        
-        resolve({
-          title:   String(d.title  || ''),
-          artist:  String(d.artist || ''),
-          album:   String(d.album  || ''),
-          playing: Boolean(d.playing),
-          pos:     Number(d.pos || 0),
-          dur:     Number(d.dur || 0),
-          src:     String(d.src  || ''),
-          art:     String(d.art  || ''),
-        });
-      } catch (e) {
-        resolve(null);
-      }
-    }
-  );
+  exec(PS_CMD, {
+    timeout: 5000, windowsHide: true, maxBuffer: 8 * 1024 * 1024,
+    env: { ...process.env, POWERSHELL_TELEMETRY_OPTOUT: '1' },
+  }, (err, stdout) => {
+    const raw = (stdout || '').trim();
+    if (!raw || raw === '{}') return resolve(null);
+    try {
+      const d = JSON.parse(raw);
+      if (!d || !d.title) return resolve(null);
+      resolve({
+        title:   String(d.title  || '').trim(),
+        artist:  String(d.artist || '').trim(),
+        album:   String(d.album  || '').trim(),
+        playing: Boolean(d.playing),
+        pos:     Number(d.pos || 0),
+        dur:     Number(d.dur || 0),
+        src:     String(d.src || ''),
+        art:     String(d.art || ''),
+      });
+    } catch(_) { resolve(null); }
+  });
 }));
 
 // Tray
@@ -248,7 +181,7 @@ function createTray() {
   tray = new Tray(nativeImage.createEmpty());
   tray.setToolTip('WinNotch');
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'WinNotch',  enabled: false },
+    { label: 'WinNotch', enabled: false },
     { type: 'separator' },
     { label: 'Show',  click: () => win?.show()  },
     { label: 'Hide',  click: () => win?.hide()  },
@@ -258,7 +191,6 @@ function createTray() {
   tray.on('double-click', () => win?.isVisible() ? win.hide() : win?.show());
 }
 
-// Boot
 app.whenReady().then(() => {
   if (app.dock) app.dock.hide();
   createWindow();
