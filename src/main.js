@@ -12,50 +12,37 @@ const { exec } = require('child_process');
 if (!app.requestSingleInstanceLock()) { app.quit(); process.exit(0); }
 
 let win, tray;
-
 const NOTCH_H = 160;
 
 function getPrimary() { return screen.getPrimaryDisplay(); }
 
 function createWindow() {
   const { bounds } = getPrimary();
-
   win = new BrowserWindow({
-    width:           bounds.width,
-    height:          NOTCH_H,
-    x:               bounds.x,
-    y:               bounds.y,
-    frame:           false,
-    transparent:     true,
+    width: bounds.width, height: NOTCH_H,
+    x: bounds.x, y: bounds.y,
+    frame: false, transparent: true,
     backgroundColor: '#00000000',
-    hasShadow:       false,
-    alwaysOnTop:     true,
-    skipTaskbar:     true,
-    resizable:       false,
-    movable:         false,
-    minimizable:     false,
-    maximizable:     false,
-    closable:        false,
-    focusable:       true,
+    hasShadow: false, alwaysOnTop: true,
+    skipTaskbar: true, resizable: false,
+    movable: false, minimizable: false,
+    maximizable: false, closable: false,
+    focusable: true,
     webPreferences: {
-      nodeIntegration:  false,
+      nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
     },
   });
-
   win.loadFile(path.join(__dirname, 'index.html'));
   win.setIgnoreMouseEvents(true, { forward: true });
   win.setAlwaysOnTop(true, 'screen-saver', 1);
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-
   win.on('blur',  () => win.setAlwaysOnTop(true, 'screen-saver', 1));
   win.on('focus', () => win.setAlwaysOnTop(true, 'screen-saver', 1));
-
   screen.on('display-metrics-changed', refit);
   screen.on('display-added',           refit);
   screen.on('display-removed',         refit);
-
   setInterval(() => {
     if (win && !win.isDestroyed()) win.setAlwaysOnTop(true, 'screen-saver', 1);
   }, 2000);
@@ -70,7 +57,7 @@ function refit() {
 ipcMain.on('mouse-enter', () => win?.setIgnoreMouseEvents(false));
 ipcMain.on('mouse-leave', () => win?.setIgnoreMouseEvents(true, { forward: true }));
 
-// CPU + RAM
+// ── CPU + RAM ─────────────────────────────────────────────────────────────────
 function cpuSample() {
   let idle = 0, total = 0;
   const cpus = os.cpus();
@@ -92,31 +79,55 @@ ipcMain.handle('get-stats', async () => {
   return { cpu, ram: Math.round((used / total) * 100) };
 });
 
-// Media - enumerate ALL SMTC sessions and pick best (Playing > Paused, Chrome boosted)
-const PS_MEDIA = `
+// ── Media read ────────────────────────────────────────────────────────────────
+//
+// THE FIX: Two-pass session selection:
+//   Pass 1 — find any session with status=Playing → use it immediately
+//   Pass 2 — if nothing is Playing, fall back to Paused
+//
+// This means Spotify Playing ALWAYS beats a browser tab that is Paused,
+// regardless of source app name. No source-name bias at all.
+//
+const PS_GET_MEDIA = `
 try {
   Add-Type -AssemblyName System.Runtime.WindowsRuntime
-  $m = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.IsGenericMethod -and $_.GetParameters().Count -eq 1 })[0]
-  function WA($t,$r){ $x=$m.MakeGenericMethod($r).Invoke($null,@($t)); $x.Wait(-1)|Out-Null; $x.Result }
+  $m=([System.WindowsRuntimeSystemExtensions].GetMethods()|Where-Object{$_.Name -eq 'AsTask' -and $_.IsGenericMethod -and $_.GetParameters().Count -eq 1})[0]
+  function WA($t,$r){$x=$m.MakeGenericMethod($r).Invoke($null,@($t));$x.Wait(-1)|Out-Null;$x.Result}
   [void][Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager,Windows.Media.Control,ContentType=WindowsRuntime]
-  $mgr = WA ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
-  $sessions = $mgr.GetSessions()
-  if($sessions.Count -eq 0){ Write-Output '{}'; exit }
+  $mgr=WA ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
+  $sessions=$mgr.GetSessions()
+  if($sessions.Count -eq 0){Write-Output '{}';exit}
+
   $Playing=[Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus]::Playing
   $Paused=[Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus]::Paused
-  $best=$null; $bestScore=0
+
+  # Pass 1: find a session that is actively Playing
+  $best=$null
   foreach($s in $sessions){
     try{
       $pb=$s.GetPlaybackInfo()
-      $score=1
-      if($pb.PlaybackStatus -eq $Playing){$score=3}
-      elseif($pb.PlaybackStatus -eq $Paused){$score=2}
-      $id=$s.SourceAppUserModelId
-      if($id -match 'chrome|msedge|edge|firefox'){$score+=10}
-      if($score -gt $bestScore){$bestScore=$score;$best=$s}
+      if($pb.PlaybackStatus -eq $Playing){
+        $best=$s
+        break
+      }
     }catch{}
   }
-  if($best -eq $null){ Write-Output '{}'; exit }
+
+  # Pass 2: nothing Playing — take first Paused session
+  if($best -eq $null){
+    foreach($s in $sessions){
+      try{
+        $pb=$s.GetPlaybackInfo()
+        if($pb.PlaybackStatus -eq $Paused){
+          $best=$s
+          break
+        }
+      }catch{}
+    }
+  }
+
+  if($best -eq $null){Write-Output '{}';exit}
+
   $props=WA ($best.TryGetMediaPropertiesAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties])
   $tl=$best.GetTimelineProperties()
   $pb2=$best.GetPlaybackInfo()
@@ -133,27 +144,77 @@ try {
       if($sz -gt 0 -and $sz -lt 2097152){
         $dr=[Windows.Storage.Streams.DataReader]::CreateDataReader($stream)
         WA ($dr.LoadAsync($sz)) ([uint32])|Out-Null
-        $buf=New-Object byte[] $sz
-        $dr.ReadBytes($buf)
-        $art=[Convert]::ToBase64String($buf)
-        $dr.Dispose()
+        $buf=New-Object byte[] $sz;$dr.ReadBytes($buf)
+        $art=[Convert]::ToBase64String($buf);$dr.Dispose()
       }
       $stream.Dispose()
     }catch{$art=''}
   }
-  $r=[ordered]@{title=[string]$props.Title;artist=[string]$props.Artist;album=[string]$props.AlbumTitle;playing=$isPlaying;pos=$pos;dur=$dur;src=[string]$best.SourceAppUserModelId;art=$art}
+  $r=[ordered]@{
+    title=[string]$props.Title
+    artist=[string]$props.Artist
+    album=[string]$props.AlbumTitle
+    playing=$isPlaying
+    pos=$pos
+    dur=$dur
+    src=[string]$best.SourceAppUserModelId
+    art=$art
+  }
   Write-Output ($r|ConvertTo-Json -Compress -Depth 1)
-}catch{ Write-Output '{}' }
+}catch{Write-Output '{}'}
 `.trim();
 
-const PS_CMD = (function() {
-  const buf = Buffer.from(PS_MEDIA, 'utf16le');
-  return `powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand ${buf.toString('base64')}`;
-})();
+// ── Media control ─────────────────────────────────────────────────────────────
+// Same two-pass logic for controls — targets the Playing session first
+function buildControlScript(cmd) {
+  let action = '';
+  switch (cmd) {
+    case 'play':  action = `WA ($best.TryPlayAsync()) ([bool])|Out-Null`; break;
+    case 'pause': action = `WA ($best.TryPauseAsync()) ([bool])|Out-Null`; break;
+    case 'next':  action = `WA ($best.TrySkipNextAsync()) ([bool])|Out-Null`; break;
+    case 'prev':  action = `WA ($best.TrySkipPreviousAsync()) ([bool])|Out-Null`; break;
+    default:      action = `WA ($best.TryTogglePlayPauseAsync()) ([bool])|Out-Null`;
+  }
+  return `
+try {
+  Add-Type -AssemblyName System.Runtime.WindowsRuntime
+  $m=([System.WindowsRuntimeSystemExtensions].GetMethods()|Where-Object{$_.Name -eq 'AsTask' -and $_.IsGenericMethod -and $_.GetParameters().Count -eq 1})[0]
+  function WA($t,$r){$x=$m.MakeGenericMethod($r).Invoke($null,@($t));$x.Wait(-1)|Out-Null;$x.Result}
+  [void][Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager,Windows.Media.Control,ContentType=WindowsRuntime]
+  $mgr=WA ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
+  $sessions=$mgr.GetSessions()
+  if($sessions.Count -eq 0){exit}
+  $Playing=[Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus]::Playing
+  $Paused=[Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus]::Paused
+  $best=$null
+  foreach($s in $sessions){
+    try{ $pb=$s.GetPlaybackInfo(); if($pb.PlaybackStatus -eq $Playing){$best=$s;break} }catch{}
+  }
+  if($best -eq $null){
+    foreach($s in $sessions){
+      try{ $pb=$s.GetPlaybackInfo(); if($pb.PlaybackStatus -eq $Paused){$best=$s;break} }catch{}
+    }
+  }
+  if($best -eq $null){exit}
+  ${action}
+}catch{}
+`.trim();
+}
+
+function encodeCmd(script) {
+  return `powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand ${Buffer.from(script, 'utf16le').toString('base64')}`;
+}
+
+const PS_GET_CMD = encodeCmd(PS_GET_MEDIA);
+const _ctrlCache = {};
+function getCtrlCmd(cmd) {
+  if (!_ctrlCache[cmd]) _ctrlCache[cmd] = encodeCmd(buildControlScript(cmd));
+  return _ctrlCache[cmd];
+}
 
 ipcMain.handle('get-media', () => new Promise(resolve => {
   if (process.platform !== 'win32') return resolve(null);
-  exec(PS_CMD, {
+  exec(PS_GET_CMD, {
     timeout: 5000, windowsHide: true, maxBuffer: 8 * 1024 * 1024,
     env: { ...process.env, POWERSHELL_TELEMETRY_OPTOUT: '1' },
   }, (err, stdout) => {
@@ -176,7 +237,15 @@ ipcMain.handle('get-media', () => new Promise(resolve => {
   });
 }));
 
-// Tray
+ipcMain.handle('media-cmd', (_, cmd) => new Promise(resolve => {
+  if (process.platform !== 'win32') return resolve(false);
+  exec(getCtrlCmd(cmd), {
+    timeout: 3000, windowsHide: true, maxBuffer: 64 * 1024,
+    env: { ...process.env, POWERSHELL_TELEMETRY_OPTOUT: '1' },
+  }, (err) => resolve(!err));
+}));
+
+// ── Tray ──────────────────────────────────────────────────────────────────────
 function createTray() {
   tray = new Tray(nativeImage.createEmpty());
   tray.setToolTip('WinNotch');

@@ -4,197 +4,185 @@
 <meta charset="UTF-8">
 <title>WinNotch</title>
 <style>
-@font-face { font-family:'Sora'; src:url('../assets/fonts/Sora-Thin.ttf') format('truetype'); font-weight:100; }
-@font-face { font-family:'Sora'; src:url('../assets/fonts/Sora-ExtraLight.ttf') format('truetype'); font-weight:200; }
-@font-face { font-family:'Sora'; src:url('../assets/fonts/Sora-Light.ttf') format('truetype'); font-weight:300; }
-@font-face { font-family:'Sora'; src:url('../assets/fonts/Sora-Regular.ttf') format('truetype'); font-weight:400; }
-@font-face { font-family:'Sora'; src:url('../assets/fonts/Sora-SemiBold.ttf') format('truetype'); font-weight:600; }
-@font-face { font-family:'Sora'; src:url('../assets/fonts/Sora-Bold.ttf') format('truetype'); font-weight:700; }
-@font-face { font-family:'Sora'; src:url('../assets/fonts/Sora-ExtraBold.ttf') format('truetype'); font-weight:800; }
+@font-face{font-family:'Sora';src:url('../assets/fonts/Sora-Thin.ttf') format('truetype');font-weight:100}
+@font-face{font-family:'Sora';src:url('../assets/fonts/Sora-ExtraLight.ttf') format('truetype');font-weight:200}
+@font-face{font-family:'Sora';src:url('../assets/fonts/Sora-Light.ttf') format('truetype');font-weight:300}
+@font-face{font-family:'Sora';src:url('../assets/fonts/Sora-Regular.ttf') format('truetype');font-weight:400}
+@font-face{font-family:'Sora';src:url('../assets/fonts/Sora-SemiBold.ttf') format('truetype');font-weight:600}
+@font-face{font-family:'Sora';src:url('../assets/fonts/Sora-Bold.ttf') format('truetype');font-weight:700}
+@font-face{font-family:'Sora';src:url('../assets/fonts/Sora-ExtraBold.ttf') format('truetype');font-weight:800}
 
-:root {
-  --font: 'Sora', system-ui, sans-serif;
-  --cw: 262px;  --ch: 34px;
-  --ew: 490px;  --eh: 152px;
-  --ink:  #000;
-  --w100: #fff;
-  --w90:  rgba(255,255,255,0.92);
-  --w65:  rgba(255,255,255,0.65);
-  --w40:  rgba(255,255,255,0.40);
-  --w22:  rgba(255,255,255,0.22);
-  --w12:  rgba(255,255,255,0.12);
-  --w07:  rgba(255,255,255,0.07);
-  --w04:  rgba(255,255,255,0.04);
+:root{
+  --font:'Sora',system-ui,sans-serif;
+  --cw:262px; --ch:34px;
+  --ew:490px; --eh:152px;
+  --ink:#000;
+  --w100:#fff;
+  --w90:rgba(255,255,255,0.92);
+  --w65:rgba(255,255,255,0.65);
+  --w40:rgba(255,255,255,0.40);
+  --w22:rgba(255,255,255,0.22);
+  --w12:rgba(255,255,255,0.12);
+  --w07:rgba(255,255,255,0.07);
+  --w04:rgba(255,255,255,0.04);
   --green:#34d962; --amber:#ffaa00; --red:#ff4444;
-  --spring: cubic-bezier(0.32,0.72,0.00,1.00);
+  --ease-open: cubic-bezier(0.22,1.00,0.36,1.00);
+  --ease-close:cubic-bezier(0.40,0.00,1.00,0.55);
+  --dur-open:420ms; --dur-close:190ms;
 }
 
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
-
 html,body{
-  width:100vw; height:165px;
-  background:transparent; overflow:hidden;
+  width:100vw;height:165px;
+  background:transparent;overflow:hidden;
   font-family:var(--font);
   -webkit-font-smoothing:antialiased;
   -moz-osx-font-smoothing:grayscale;
-  user-select:none; pointer-events:none;
+  user-select:none;pointer-events:none;
 }
 
-/* Shadow */
+/* ── Shadow ──────────────────────────────────────────────── */
 #sw{
   pointer-events:none;
-  position:absolute; top:0; left:50%; transform:translateX(-50%);
-  width:var(--cw); height:var(--ch);
+  position:absolute;top:0;left:50%;transform:translateX(-50%);
+  width:var(--cw);height:var(--ch);
   border-radius:0 0 14px 14px;
-  filter:drop-shadow(0 5px 18px rgba(0,0,0,0.82)) drop-shadow(0 1px 5px rgba(0,0,0,0.60));
-  transition:width 480ms var(--spring),height 480ms var(--spring),border-radius 480ms var(--spring),filter 320ms ease;
-  will-change:width,height; z-index:0;
+  filter:drop-shadow(0 5px 20px rgba(0,0,0,0.85)) drop-shadow(0 1px 5px rgba(0,0,0,0.60));
+  transition:width var(--dur-close) var(--ease-close),height var(--dur-close) var(--ease-close),border-radius var(--dur-close) var(--ease-close);
+  will-change:width,height;z-index:0;
 }
 #sw::before{content:'';position:absolute;inset:0;background:var(--ink);border-radius:inherit}
-#sw.open{width:var(--ew);height:var(--eh);border-radius:0 0 28px 28px;
-  filter:drop-shadow(0 10px 32px rgba(0,0,0,0.70)) drop-shadow(0 2px 8px rgba(0,0,0,0.40))}
+#sw.open{
+  width:var(--ew);height:var(--eh);border-radius:0 0 28px 28px;
+  transition:width var(--dur-open) var(--ease-open),height var(--dur-open) var(--ease-open),border-radius var(--dur-open) var(--ease-open);
+}
 
-/* Notch */
+/* ── Notch ───────────────────────────────────────────────── */
 #notch{
   pointer-events:all;
-  position:absolute; top:0; left:50%; transform:translateX(-50%);
-  z-index:1;
-  width:var(--cw); height:var(--ch);
+  position:absolute;top:0;left:50%;transform:translateX(-50%);
+  z-index:1;width:var(--cw);height:var(--ch);
   background:var(--ink);
   border:0.5px solid rgba(255,255,255,0.11);
-  border-top:none;
-  border-radius:0 0 14px 14px;
+  border-top:none;border-radius:0 0 14px 14px;
   overflow:hidden;
-  transition:width 480ms var(--spring),height 480ms var(--spring),border-radius 480ms var(--spring);
+  transition:width var(--dur-close) var(--ease-close),height var(--dur-close) var(--ease-close),border-radius var(--dur-close) var(--ease-close);
   will-change:width,height;
 }
-#notch.open{width:var(--ew);height:var(--eh);border-radius:0 0 28px 28px;border-color:rgba(255,255,255,0.13)}
+#notch.open{
+  width:var(--ew);height:var(--eh);border-radius:0 0 28px 28px;
+  border-color:rgba(255,255,255,0.13);
+  transition:width var(--dur-open) var(--ease-open),height var(--dur-open) var(--ease-open),border-radius var(--dur-open) var(--ease-open);
+}
 
-/* ── Collapsed ─────────────────── */
+/* ── Collapsed pill ──────────────────────────────────────── */
 #pill{
   position:absolute;inset:0;
   display:flex;align-items:center;justify-content:space-between;
-  padding:0 14px; z-index:2;
-  transition:opacity 140ms ease,transform 220ms var(--spring);
+  padding:0 11px;z-index:2;
+  transition:opacity 100ms ease,transform 150ms var(--ease-close);
 }
-#notch.open #pill{opacity:0;transform:scale(0.88) translateY(-5px);pointer-events:none}
+#notch.open #pill{
+  opacity:0;transform:scale(0.84) translateY(-5px);pointer-events:none;
+  transition:opacity 60ms ease,transform 120ms var(--ease-close);
+}
 
-.p-time{
-  font-size:12px; font-weight:700;
-  color:var(--w90); letter-spacing:0.01em;
-  font-variant-numeric:tabular-nums;
-}
+.p-time{font-size:12px;font-weight:700;color:var(--w90);letter-spacing:0.01em;font-variant-numeric:tabular-nums}
 .p-dots{display:flex;gap:5px;align-items:center}
 .dot{width:5px;height:5px;border-radius:50%;background:var(--w22);transition:background .3s,box-shadow .3s,transform .25s}
 .dot.on{background:var(--w100);box-shadow:0 0 4px rgba(255,255,255,0.5)}
-.dot.beat{background:var(--green);box-shadow:0 0 6px rgba(52,217,98,0.9);animation:beat 1.1s ease-in-out infinite}
+.dot.beat{background:var(--green);box-shadow:0 0 6px rgba(52,217,98,0.85);animation:beat 1.1s ease-in-out infinite}
 @keyframes beat{0%,100%{transform:scale(1)}50%{transform:scale(1.65)}}
-.p-cpu{font-size:10px;font-weight:600;color:var(--w40);font-variant-numeric:tabular-nums;letter-spacing:0.04em}
 
-/* ── Expanded ──────────────────── */
+/* Right side of pill — cpu OR album art */
+#pill-right{
+  position:relative;width:32px;height:22px;
+  display:flex;align-items:center;justify-content:flex-end;
+}
+
+/* CPU text */
+#p-cpu{
+  font-size:10px;font-weight:600;color:var(--w40);
+  font-variant-numeric:tabular-nums;letter-spacing:0.04em;
+  position:absolute;right:0;
+  transition:opacity 200ms ease,transform 200ms var(--ease-open);
+}
+#p-cpu.hidden{opacity:0;transform:scale(0.7);pointer-events:none}
+
+/* Album art thumbnail */
+#pill-art{
+  width:22px;height:22px;border-radius:5px;
+  overflow:hidden;flex-shrink:0;
+  position:absolute;right:0;
+  background:#111;
+  opacity:0;transform:scale(0.5);
+  transition:opacity 250ms ease,transform 300ms var(--ease-open);
+  /* green glow ring */
+  box-shadow:0 0 0 1.5px var(--green),0 0 7px 1px rgba(52,217,98,0.6);
+}
+#pill-art.visible{opacity:1;transform:scale(1)}
+#pill-art.playing{animation:glow-pulse 1.8s ease-in-out infinite}
+#pill-art.paused{box-shadow:0 0 0 1.5px rgba(52,217,98,0.4),0 0 3px 0px rgba(52,217,98,0.2)}
+@keyframes glow-pulse{
+  0%,100%{box-shadow:0 0 0 1.5px var(--green),0 0 7px 1px rgba(52,217,98,0.55)}
+  50%    {box-shadow:0 0 0 1.5px var(--green),0 0 12px 3px rgba(52,217,98,0.80)}
+}
+#pill-art img{width:100%;height:100%;object-fit:cover;display:block}
+#pill-art-ph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#1a1a1a}
+
+/* ── Expanded panel ──────────────────────────────────────── */
 #panel{
-  position:absolute;inset:0;
-  padding:12px 16px 11px;
+  position:absolute;inset:0;padding:12px 16px 11px;
   display:flex;flex-direction:column;gap:8px;
-  pointer-events:none; opacity:0;
-  transform:translateY(-8px) scale(0.978);
-  transition:opacity 240ms ease 80ms,transform 420ms var(--spring) 60ms;
+  pointer-events:none;opacity:0;
+  transform:translateY(-10px) scale(0.975);
+  transition:opacity 80ms ease,transform var(--dur-close) var(--ease-close);
 }
-#notch.open #panel{opacity:1;transform:none;pointer-events:all}
+#notch.open #panel{
+  opacity:1;transform:none;pointer-events:all;
+  transition:opacity 200ms ease 110ms,transform var(--dur-open) var(--ease-open) 80ms;
+}
 
-/* Top row */
 .top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
-
-/* Clock — bold & punchy */
 .clk{display:flex;flex-direction:column;line-height:1}
-.clk-hm{
-  font-size:40px; font-weight:700;
-  color:var(--w100); letter-spacing:-0.05em;
-  font-variant-numeric:tabular-nums;
-  line-height:1;
-}
-.clk-date{
-  font-size:8.5px; font-weight:700;
-  color:var(--w40); letter-spacing:0.20em;
-  text-transform:uppercase; margin-top:4px;
-}
-
-/* Stats */
+.clk-hm{font-size:40px;font-weight:700;color:var(--w100);letter-spacing:-0.05em;font-variant-numeric:tabular-nums;line-height:1}
+.clk-date{font-size:8.5px;font-weight:700;color:var(--w40);letter-spacing:0.20em;text-transform:uppercase;margin-top:4px}
 .stats{display:flex;flex-direction:column;gap:7px;min-width:142px;padding-top:4px}
 .stat{display:flex;align-items:center;gap:7px}
-.stat-lbl{
-  font-size:8px; font-weight:800;
-  color:var(--w40); letter-spacing:0.16em;
-  text-transform:uppercase; min-width:26px; flex-shrink:0;
-}
+.stat-lbl{font-size:8px;font-weight:800;color:var(--w40);letter-spacing:0.16em;text-transform:uppercase;min-width:26px;flex-shrink:0}
 .stat-bar{flex:1;height:3px;background:rgba(255,255,255,0.09);border-radius:2px;overflow:hidden}
-.stat-fill{
-  height:100%;border-radius:2px;background:rgba(255,255,255,0.50);
-  width:0%;transition:width 0.85s var(--spring),background 0.35s;
-}
-.stat-fill.mid{background:var(--amber)} .stat-fill.high{background:var(--red)}
-.stat-val{
-  font-size:9.5px;font-weight:700;
-  color:var(--w65);font-variant-numeric:tabular-nums;
-  min-width:28px;text-align:right;flex-shrink:0;
-}
-
-/* Divider */
-.div{
-  height:1px;
-  background:linear-gradient(90deg,transparent,rgba(255,255,255,0.10) 20%,rgba(255,255,255,0.10) 80%,transparent);
-  flex-shrink:0;margin:0 1px;
-}
-
-/* Media row */
-.media{display:flex;align-items:center;gap:10px;flex:1;min-height:0}
-
+.stat-fill{height:100%;border-radius:2px;background:rgba(255,255,255,0.50);width:0%;transition:width 0.85s var(--ease-open),background 0.35s}
+.stat-fill.mid{background:var(--amber)}.stat-fill.high{background:var(--red)}
+.stat-val{font-size:9.5px;font-weight:700;color:var(--w65);font-variant-numeric:tabular-nums;min-width:28px;text-align:right;flex-shrink:0}
+.div{height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.10) 20%,rgba(255,255,255,0.10) 80%,transparent);flex-shrink:0;margin:0 1px}
+.media-row{display:flex;align-items:center;gap:10px;flex:1;min-height:0}
 .art{
   width:40px;height:40px;border-radius:9px;flex-shrink:0;
-  overflow:hidden;background:var(--w04);
-  border:1px solid var(--w12);
+  overflow:hidden;background:var(--w04);border:1px solid var(--w12);
   position:relative;display:flex;align-items:center;justify-content:center;
 }
 .art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:8px}
-.art-ico{color:var(--w40)}
-.art-ico svg{width:16px;height:16px}
-
+.art-ico{color:var(--w40)}.art-ico svg{width:16px;height:16px}
 .track{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
-.track-title{
-  font-size:12.5px;font-weight:700;
-  color:var(--w90);
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-  line-height:1.25;letter-spacing:-0.02em;
-}
-.track-artist{
-  font-size:9.5px;font-weight:600;
-  color:var(--w40);
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-  line-height:1.3;letter-spacing:0.01em;
-}
+.track-title{font-size:12.5px;font-weight:700;color:var(--w90);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.25;letter-spacing:-0.02em}
+.track-artist{font-size:9.5px;font-weight:600;color:var(--w40);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.3}
 .track-prog{height:2px;background:rgba(255,255,255,0.08);border-radius:1px;overflow:hidden;margin-top:6px}
 .track-prog-fill{height:100%;border-radius:1px;background:rgba(255,255,255,0.40);width:0%;transition:width 1.4s linear}
-
-/* Controls */
 .ctrl{display:flex;align-items:center;gap:2px;flex-shrink:0}
 .mc{
   width:28px;height:28px;border-radius:50%;border:none;background:transparent;
   color:var(--w40);display:flex;align-items:center;justify-content:center;
   cursor:pointer;transition:color 80ms,background 80ms,transform 60ms;
+  pointer-events:all;-webkit-app-region:no-drag;
 }
 .mc:hover{color:var(--w90);background:var(--w07)}
-.mc:active{transform:scale(0.74)}
-.mc svg{width:13px;height:13px}
+.mc:active{transform:scale(0.72);color:var(--w100)}
+.mc svg{width:13px;height:13px;pointer-events:none}
 .mc.pp{width:30px;height:30px;background:var(--w07);color:var(--w90);border:1px solid var(--w22)}
 .mc.pp:hover{background:var(--w12)}
 .mc.pp svg{width:14px;height:14px}
-
-/* Source badge */
-.badge{
-  font-size:7px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;
-  padding:2px 6px;border-radius:100px;flex-shrink:0;
-  display:none;align-items:center;border:1px solid;
-}
+.mc.flash{background:rgba(255,255,255,0.20)!important;color:var(--w100)!important}
+.badge{font-size:7px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;padding:2px 6px;border-radius:100px;flex-shrink:0;display:none;align-items:center;border:1px solid}
 .badge.yt{display:flex;color:#ff5050;border-color:rgba(255,80,80,0.28);background:rgba(255,80,80,0.08)}
 .badge.sp{display:flex;color:var(--green);border-color:rgba(52,217,98,0.28);background:rgba(52,217,98,0.08)}
 .badge.br{display:flex;color:var(--w40);border-color:var(--w12);background:var(--w04)}
@@ -205,18 +193,31 @@ html,body{
 <div id="sw"></div>
 
 <div id="notch">
-  <!-- Collapsed -->
+
+  <!-- COLLAPSED PILL — same original layout, art replaces cpu -->
   <div id="pill">
     <span class="p-time" id="pt">12:00 AM</span>
+
     <div class="p-dots">
-      <div class="dot" id="d-media"></div>
+      <div class="dot" id="d-dot"></div>
       <div class="dot on"></div>
       <div class="dot on"></div>
     </div>
-    <span class="p-cpu" id="p-cpu">--%</span>
+
+    <!-- Right: cpu text (hidden when music) OR album art (shown when music) -->
+    <div id="pill-right">
+      <span id="p-cpu">--%</span>
+      <div id="pill-art">
+        <div id="pill-art-ph">
+          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="2">
+            <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+          </svg>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <!-- Expanded -->
+  <!-- EXPANDED PANEL -->
   <div id="panel">
     <div class="top">
       <div class="clk">
@@ -239,13 +240,11 @@ html,body{
 
     <div class="div"></div>
 
-    <div class="media">
+    <div class="media-row">
       <div class="art" id="m-art">
         <div class="art-ico">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-            <path d="M9 18V5l12-2v13"/>
-            <circle cx="6" cy="18" r="3"/>
-            <circle cx="18" cy="16" r="3"/>
+            <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
           </svg>
         </div>
       </div>
@@ -276,61 +275,71 @@ html,body{
 const notch = document.getElementById('notch');
 const sw    = document.getElementById('sw');
 
-// ── Rock-solid hover tracking using document mousemove ──────────────────────
-// mouseleave on a parent fires when moving over children — unreliable.
-// Document-level hit testing is the only correct approach.
-let isOpen = false, expandT = null, collapseT = null;
+// ── Hover: use the EXPANDED size for hit-testing when open ────────────────────
+// The notch is overflow:hidden so moving down inside the expanded area
+// still keeps the cursor "inside" — we must test against the CURRENT rendered size.
+// We read getBoundingClientRect() every move which always returns actual rendered size
+// including mid-transition, so this naturally handles the open/close states.
+let isOpen=false, expandT=null;
 
-function rectContains(r, x, y) {
+function isInsideNotch(x, y){
+  // Use the shadow wrapper rect — it's the same size and has no overflow clip
+  const r = notch.getBoundingClientRect();
   return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
 }
 
-function open() {
-  clearTimeout(collapseT);
-  if (isOpen) return;
+function openNotch(){
+  if(isOpen) return;
   clearTimeout(expandT);
-  expandT = setTimeout(() => {
-    isOpen = true;
+  expandT = setTimeout(()=>{
+    isOpen=true;
     notch.classList.add('open');
     sw.classList.add('open');
     window.api?.mouseEnter?.();
-  }, 35);
+  }, 30);
 }
 
-function close() {
+function closeNotch(){
   clearTimeout(expandT);
-  if (!isOpen) return;
-  clearTimeout(collapseT);
-  collapseT = setTimeout(() => {
-    isOpen = false;
-    notch.classList.remove('open');
-    sw.classList.remove('open');
-    window.api?.mouseLeave?.();
-  }, 100);
+  if(!isOpen) return;
+  isOpen=false;
+  notch.classList.remove('open');
+  sw.classList.remove('open');
+  window.api?.mouseLeave?.();
 }
 
-document.addEventListener('mousemove', e => {
-  rectContains(notch.getBoundingClientRect(), e.clientX, e.clientY) ? open() : close();
-}, { passive: true });
-document.addEventListener('mouseleave', close, { passive: true });
+// Poll cursor position — much more reliable than mousemove alone.
+// mousemove doesn't fire when cursor stops moving. rAF catches that case.
+let lastX=0, lastY=0;
+document.addEventListener('mousemove', e=>{
+  lastX=e.clientX; lastY=e.clientY;
+  isInsideNotch(lastX, lastY) ? openNotch() : closeNotch();
+}, {passive:true});
 
-// ── Clock ───────────────────────────────────────────────────────────────────
-const DAYS=['SUN','MON','TUE','WED','THU','FRI','SAT'];
+// Also run check every 100ms in case cursor stopped inside then drifted
+// without mousemove firing (e.g. window lost focus)
+setInterval(()=>{
+  if(lastX===0 && lastY===0) return;
+  isInsideNotch(lastX, lastY) ? null : closeNotch();
+}, 100);
+
+document.addEventListener('mouseleave', closeNotch, {passive:true});
+
+// ── Clock ──────────────────────────────────────────────────────────────────────
+const DAYS  =['SUN','MON','TUE','WED','THU','FRI','SAT'];
 const MONTHS=['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
 function tick(){
-  const n=new Date();
-  let h=n.getHours();
+  const n=new Date(); let h=n.getHours();
   const m=String(n.getMinutes()).padStart(2,'0');
-  const ap=h>=12?'PM':'AM';
-  h=h%12||12;
+  const ap=h>=12?'PM':'AM'; h=h%12||12;
   document.getElementById('pt').textContent=`${h}:${m} ${ap}`;
   document.getElementById('et').textContent=`${h}:${m}`;
   document.getElementById('ed').textContent=`${DAYS[n.getDay()]}, ${MONTHS[n.getMonth()]} ${n.getDate()}`;
 }
 tick(); setInterval(tick,1000);
 
-// ── Stats ───────────────────────────────────────────────────────────────────
-function barCls(p){ return p>=80?'high':p>=55?'mid':'' }
+// ── Stats ──────────────────────────────────────────────────────────────────────
+function barCls(p){return p>=80?'high':p>=55?'mid':''}
 async function refreshStats(){
   try{
     if(!window.api?.getStats) return;
@@ -346,54 +355,150 @@ async function refreshStats(){
 }
 refreshStats(); setInterval(refreshStats,2500);
 
-// ── Media ───────────────────────────────────────────────────────────────────
+// ── Controls — instant, no lag ─────────────────────────────────────────────────
+// Removed cmdInFlight delay. UI updates INSTANTLY on click.
+// IPC call fires in background — we don't wait for it.
+let mediaPlaying=false;
+
+function flash(btn){btn.classList.add('flash'); setTimeout(()=>btn.classList.remove('flash'),150)}
+
+function sendCmd(cmd, btn){
+  if(btn) flash(btn);
+
+  // INSTANT optimistic UI — no waiting
+  if(cmd==='play'){
+    mediaPlaying=true;
+    setPlay(true);
+  } else if(cmd==='pause'){
+    mediaPlaying=false;
+    setPlay(false);
+  }
+
+  // Fire IPC in background, don't await
+  window.api?.['media'+cmd[0].toUpperCase()+cmd.slice(1)]?.().catch(()=>{});
+}
+
+document.getElementById('btn-play').addEventListener('click', e=>{
+  e.stopPropagation();
+  sendCmd(mediaPlaying?'pause':'play', e.currentTarget);
+});
+document.getElementById('btn-prev').addEventListener('click', e=>{
+  e.stopPropagation();
+  sendCmd('prev', e.currentTarget);
+});
+document.getElementById('btn-next').addEventListener('click', e=>{
+  e.stopPropagation();
+  sendCmd('next', e.currentTarget);
+});
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
 const ART_PH=`<div class="art-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>`;
 
 function setPlay(p){
-  document.getElementById('ico-play').style.display=p?'none':'';
+  document.getElementById('ico-play').style.display =p?'none':'';
   document.getElementById('ico-pause').style.display=p?'':'none';
 }
 
 function srcInfo(s){
   if(!s) return{cls:'',lbl:''};
   const l=s.toLowerCase();
-  if(l.includes('spotify'))  return{cls:'sp',lbl:'SPOTIFY'};
-  if(l.includes('youtube'))  return{cls:'yt',lbl:'YOUTUBE'};
+  if(l.includes('spotify'))                 return{cls:'sp',lbl:'SPOTIFY'};
+  if(l.includes('youtube'))                 return{cls:'yt',lbl:'YOUTUBE'};
   if(l.match(/chrome|msedge|edge|firefox/)) return{cls:'yt',lbl:'BROWSER'};
   return{cls:'br',lbl:'MEDIA'};
 }
 
+// ── Pill art ───────────────────────────────────────────────────────────────────
+let lastPillArt='';
+
+function setPillArt(art, playing){
+  const artEl  = document.getElementById('pill-art');
+  const cpuEl  = document.getElementById('p-cpu');
+  const dotEl  = document.getElementById('d-dot');
+
+  if(!art && !lastPillArt){
+    // No art ever loaded — still show art box with placeholder if media exists
+  }
+
+  if(art && art !== lastPillArt){
+    lastPillArt=art;
+    const img=new Image();
+    img.onload=()=>{
+      artEl.innerHTML='';
+      const el=document.createElement('img');
+      el.src=img.src;
+      artEl.appendChild(el);
+    };
+    img.onerror=()=>{
+      // Keep placeholder
+      artEl.innerHTML=`<div id="pill-art-ph"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>`;
+    };
+    img.src='data:image/jpeg;base64,'+art;
+  }
+
+  // Show/hide
+  artEl.classList.add('visible');
+  artEl.classList.toggle('playing', playing);
+  artEl.classList.toggle('paused',  !playing);
+  cpuEl.classList.add('hidden');
+  dotEl.className = playing ? 'dot beat' : 'dot on';
+}
+
+function clearPillArt(){
+  lastPillArt='';
+  const artEl=document.getElementById('pill-art');
+  artEl.classList.remove('visible','playing','paused');
+  artEl.innerHTML=`<div id="pill-art-ph"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>`;
+  document.getElementById('p-cpu').classList.remove('hidden');
+  document.getElementById('d-dot').className='dot';
+}
+
+// ── Media ──────────────────────────────────────────────────────────────────────
 let lastArt='', lastTitle='';
+
 async function refreshMedia(){
   try{
     if(!window.api?.getMedia) return;
     const m=await window.api.getMedia();
-    if(!m||!m.title){
-      document.getElementById('m-title').textContent='Nothing playing';
+
+    if(!m || !m.title){
+      clearPillArt();
+      document.getElementById('m-title').textContent ='Nothing playing';
       document.getElementById('m-artist').textContent='Play media to see it here';
-      document.getElementById('m-prog').style.width='0%';
-      document.getElementById('m-badge').className='badge';
-      document.getElementById('d-media').className='dot';
-      if(lastTitle){document.getElementById('m-art').innerHTML=ART_PH;lastArt='';lastTitle='';}
-      setPlay(false); return;
+      document.getElementById('m-prog').style.width  ='0%';
+      document.getElementById('m-badge').className   ='badge';
+      if(lastTitle){ document.getElementById('m-art').innerHTML=ART_PH; lastArt=''; lastTitle=''; }
+      // Only reset play icon if no command recently sent
+      mediaPlaying=false; setPlay(false);
+      return;
     }
-    document.getElementById('m-title').textContent=m.title||'—';
+
+    // Pill art (right side, replaces cpu)
+    setPillArt(m.art||null, !!m.playing);
+
+    // Expanded panel
+    document.getElementById('m-title').textContent =m.title ||'—';
     document.getElementById('m-artist').textContent=m.artist||m.album||'—';
-    document.getElementById('m-prog').style.width=
-      m.dur>0?Math.min(100,(m.pos/m.dur)*100).toFixed(1)+'%':'0%';
-    setPlay(!!m.playing);
-    document.getElementById('d-media').className=m.playing?'dot beat':'dot on';
-    const {cls,lbl}=srcInfo(m.src);
+    document.getElementById('m-prog').style.width  =
+      m.dur>0 ? Math.min(100,(m.pos/m.dur)*100).toFixed(1)+'%' : '0%';
+
+    // Sync play state from server (but don't flicker if click was recent)
+    mediaPlaying=!!m.playing;
+    setPlay(mediaPlaying);
+
+    const{cls,lbl}=srcInfo(m.src);
     const badge=document.getElementById('m-badge');
     badge.textContent=lbl; badge.className='badge '+cls;
-    if(m.art&&m.art!==lastArt){
+
+    // Expanded art
+    if(m.art && m.art!==lastArt){
       lastArt=m.art;
       const artEl=document.getElementById('m-art');
       const img=new Image();
-      img.onload=()=>{artEl.innerHTML='';const el=document.createElement('img');el.src=img.src;artEl.appendChild(el);};
-      img.onerror=()=>{artEl.innerHTML=ART_PH;};
+      img.onload=()=>{ artEl.innerHTML=''; const el=document.createElement('img'); el.src=img.src; artEl.appendChild(el); };
+      img.onerror=()=>{ artEl.innerHTML=ART_PH; };
       img.src='data:image/jpeg;base64,'+m.art;
-    }else if(!m.art&&m.title!==lastTitle){
+    } else if(!m.art && m.title!==lastTitle){
       document.getElementById('m-art').innerHTML=ART_PH; lastArt='';
     }
     lastTitle=m.title;
