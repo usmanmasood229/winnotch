@@ -1,6 +1,6 @@
 {
   "name": "winnotch",
-  "version": "6.0.0",
+  "version": "7.0.0",
   "description": "WinNotch — Dynamic Island for Windows",
   "main": "src/main.js",
   "scripts": {
