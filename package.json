@@ -1,0 +1,24 @@
+{
+  "name": "winnotch",
+  "version": "6.0.0",
+  "description": "WinNotch — Dynamic Island for Windows",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win --x64"
+  },
+  "devDependencies": {
+    "electron": "^29.0.0",
+    "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId": "com.winnotch.app",
+    "productName": "WinNotch",
+    "directories": { "output": "dist" },
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }]
+    },
+    "nsis": { "oneClick": true, "perMachine": false },
+    "files": ["src/**/*", "package.json"]
+  }
+}
