@@ -14,11 +14,29 @@
   "build": {
     "appId": "com.winnotch.app",
     "productName": "WinNotch",
-    "directories": { "output": "dist" },
-    "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }]
+    "directories": {
+      "output": "dist"
     },
-    "nsis": { "oneClick": true, "perMachine": false },
-    "files": ["src/**/*", "package.json"]
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ]
+  },
+  "dependencies": {
+    "electron-store": "^11.0.2"
   }
 }

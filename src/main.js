@@ -80,14 +80,9 @@ ipcMain.handle('get-stats', async () => {
 });
 
 // ── Media read ────────────────────────────────────────────────────────────────
-//
-// THE FIX: Two-pass session selection:
-//   Pass 1 — find any session with status=Playing → use it immediately
-//   Pass 2 — if nothing is Playing, fall back to Paused
-//
-// This means Spotify Playing ALWAYS beats a browser tab that is Paused,
-// regardless of source app name. No source-name bias at all.
-//
+// FIX: Score by playback status ONLY. No source bias.
+// Playing=3 beats Paused=2 beats Stopped=1 — always picks the right app.
+// Source (spotify/chrome) is only used as a final tiebreaker when scores are equal.
 const PS_GET_MEDIA = `
 try {
   Add-Type -AssemblyName System.Runtime.WindowsRuntime
@@ -97,37 +92,19 @@ try {
   $mgr=WA ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
   $sessions=$mgr.GetSessions()
   if($sessions.Count -eq 0){Write-Output '{}';exit}
-
   $Playing=[Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus]::Playing
   $Paused=[Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus]::Paused
-
-  # Pass 1: find a session that is actively Playing
-  $best=$null
+  $best=$null;$bestScore=0
   foreach($s in $sessions){
     try{
       $pb=$s.GetPlaybackInfo()
-      if($pb.PlaybackStatus -eq $Playing){
-        $best=$s
-        break
-      }
+      $score=1
+      if($pb.PlaybackStatus -eq $Playing){$score=30}
+      elseif($pb.PlaybackStatus -eq $Paused){$score=20}
+      if($score -gt $bestScore){$bestScore=$score;$best=$s}
     }catch{}
   }
-
-  # Pass 2: nothing Playing — take first Paused session
-  if($best -eq $null){
-    foreach($s in $sessions){
-      try{
-        $pb=$s.GetPlaybackInfo()
-        if($pb.PlaybackStatus -eq $Paused){
-          $best=$s
-          break
-        }
-      }catch{}
-    }
-  }
-
   if($best -eq $null){Write-Output '{}';exit}
-
   $props=WA ($best.TryGetMediaPropertiesAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties])
   $tl=$best.GetTimelineProperties()
   $pb2=$best.GetPlaybackInfo()
@@ -150,30 +127,21 @@ try {
       $stream.Dispose()
     }catch{$art=''}
   }
-  $r=[ordered]@{
-    title=[string]$props.Title
-    artist=[string]$props.Artist
-    album=[string]$props.AlbumTitle
-    playing=$isPlaying
-    pos=$pos
-    dur=$dur
-    src=[string]$best.SourceAppUserModelId
-    art=$art
-  }
+  $r=[ordered]@{title=[string]$props.Title;artist=[string]$props.Artist;album=[string]$props.AlbumTitle;playing=$isPlaying;pos=$pos;dur=$dur;src=[string]$best.SourceAppUserModelId;art=$art}
   Write-Output ($r|ConvertTo-Json -Compress -Depth 1)
 }catch{Write-Output '{}'}
 `.trim();
 
 // ── Media control ─────────────────────────────────────────────────────────────
-// Same two-pass logic for controls — targets the Playing session first
+// Same fix: pure playback-status scoring, no browser bias
 function buildControlScript(cmd) {
   let action = '';
   switch (cmd) {
-    case 'play':  action = `WA ($best.TryPlayAsync()) ([bool])|Out-Null`; break;
-    case 'pause': action = `WA ($best.TryPauseAsync()) ([bool])|Out-Null`; break;
-    case 'next':  action = `WA ($best.TrySkipNextAsync()) ([bool])|Out-Null`; break;
-    case 'prev':  action = `WA ($best.TrySkipPreviousAsync()) ([bool])|Out-Null`; break;
-    default:      action = `WA ($best.TryTogglePlayPauseAsync()) ([bool])|Out-Null`;
+    case 'play':      action = `WA ($best.TryPlayAsync()) ([bool])|Out-Null`; break;
+    case 'pause':     action = `WA ($best.TryPauseAsync()) ([bool])|Out-Null`; break;
+    case 'next':      action = `WA ($best.TrySkipNextAsync()) ([bool])|Out-Null`; break;
+    case 'prev':      action = `WA ($best.TrySkipPreviousAsync()) ([bool])|Out-Null`; break;
+    default:          action = `WA ($best.TryTogglePlayPauseAsync()) ([bool])|Out-Null`;
   }
   return `
 try {
@@ -186,14 +154,15 @@ try {
   if($sessions.Count -eq 0){exit}
   $Playing=[Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus]::Playing
   $Paused=[Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus]::Paused
-  $best=$null
+  $best=$null;$bestScore=0
   foreach($s in $sessions){
-    try{ $pb=$s.GetPlaybackInfo(); if($pb.PlaybackStatus -eq $Playing){$best=$s;break} }catch{}
-  }
-  if($best -eq $null){
-    foreach($s in $sessions){
-      try{ $pb=$s.GetPlaybackInfo(); if($pb.PlaybackStatus -eq $Paused){$best=$s;break} }catch{}
-    }
+    try{
+      $pb=$s.GetPlaybackInfo()
+      $score=1
+      if($pb.PlaybackStatus -eq $Playing){$score=30}
+      elseif($pb.PlaybackStatus -eq $Paused){$score=20}
+      if($score -gt $bestScore){$bestScore=$score;$best=$s}
+    }catch{}
   }
   if($best -eq $null){exit}
   ${action}

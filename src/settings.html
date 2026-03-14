@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>WinNotch</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700;800&display=swap');
+
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+
+:root{
+  --bg0:   #0a0a0a;
+  --bg1:   #111111;
+  --bg2:   #1a1a1a;
+  --bg3:   #222222;
+  --rim:   rgba(255,255,255,0.07);
+  --rim2:  rgba(255,255,255,0.12);
+  --green: #34d962;
+  --green2:#28b84e;
+  --red:   #ff453a;
+  --w100:  #ffffff;
+  --w80:   rgba(255,255,255,0.80);
+  --w50:   rgba(255,255,255,0.50);
+  --w30:   rgba(255,255,255,0.30);
+  --w15:   rgba(255,255,255,0.15);
+  --w08:   rgba(255,255,255,0.08);
+  --font:  'Sora', system-ui, sans-serif;
+}
+
+html,body{
+  width:100%;height:100%;
+  background:var(--bg0);
+  color:var(--w80);
+  font-family:var(--font);
+  -webkit-font-smoothing:antialiased;
+  overflow:hidden;
+  user-select:none;
+}
+
+/* Drag region */
+#titlebar{
+  -webkit-app-region:drag;
+  height:40px;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 16px;
+  flex-shrink:0;
+}
+#titlebar-title{
+  font-size:11px;font-weight:600;
+  color:var(--w30);letter-spacing:0.12em;text-transform:uppercase;
+}
+#btn-close{
+  -webkit-app-region:no-drag;
+  width:12px;height:12px;border-radius:50%;
+  background:var(--red);border:none;cursor:pointer;
+  opacity:0.7;transition:opacity 0.15s;
+  display:flex;align-items:center;justify-content:center;
+}
+#btn-close:hover{opacity:1}
+#btn-close svg{width:6px;height:6px;display:none}
+#btn-close:hover svg{display:block}
+
+/* Main layout */
+#app{
+  display:flex;flex-direction:column;
+  height:calc(100% - 40px);
+  padding:0 20px 20px;
+  gap:16px;
+  overflow-y:auto;
+}
+
+/* Hero toggle card */
+#hero{
+  background:var(--bg1);
+  border:1px solid var(--rim);
+  border-radius:16px;
+  padding:20px;
+  display:flex;align-items:center;justify-content:space-between;
+  gap:16px;
+  flex-shrink:0;
+}
+
+.hero-left{display:flex;flex-direction:column;gap:3px}
+.hero-name{
+  font-size:18px;font-weight:800;color:var(--w100);
+  letter-spacing:-0.03em;
+}
+.hero-sub{
+  font-size:11px;font-weight:400;color:var(--w30);
+  letter-spacing:0.02em;
+}
+
+/* Big power toggle */
+#power-toggle{
+  position:relative;
+  width:60px;height:32px;
+  flex-shrink:0;cursor:pointer;
+}
+#power-toggle input{position:absolute;opacity:0;width:0;height:0}
+#power-track{
+  position:absolute;inset:0;
+  background:var(--bg3);
+  border:1px solid var(--rim2);
+  border-radius:100px;
+  transition:background 0.25s,border-color 0.25s,box-shadow 0.25s;
+}
+#power-toggle input:checked ~ #power-track{
+  background:var(--green);
+  border-color:var(--green);
+  box-shadow:0 0 12px rgba(52,217,98,0.4);
+}
+#power-thumb{
+  position:absolute;
+  top:3px;left:3px;
+  width:24px;height:24px;border-radius:50%;
+  background:var(--w50);
+  transition:transform 0.25s cubic-bezier(0.22,1,0.36,1),background 0.25s;
+  display:flex;align-items:center;justify-content:center;
+}
+#power-toggle input:checked ~ #power-track #power-thumb{
+  transform:translateX(28px);
+  background:var(--w100);
+}
+#power-thumb svg{width:10px;height:10px;color:var(--bg0)}
+
+/* Status pill */
+#status-pill{
+  display:inline-flex;align-items:center;gap:5px;
+  padding:3px 9px;border-radius:100px;
+  font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;
+  transition:all 0.3s;
+  margin-top:4px;
+  width:fit-content;
+}
+#status-pill.on{
+  background:rgba(52,217,98,0.12);
+  color:var(--green);
+  border:1px solid rgba(52,217,98,0.25);
+}
+#status-pill.off{
+  background:rgba(255,255,255,0.05);
+  color:var(--w30);
+  border:1px solid var(--rim);
+}
+.status-dot{
+  width:5px;height:5px;border-radius:50%;
+  background:currentColor;
+}
+.status-dot.pulse{animation:pulse 1.5s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+
+/* Section label */
+.section-label{
+  font-size:9.5px;font-weight:700;
+  color:var(--w30);letter-spacing:0.16em;
+  text-transform:uppercase;
+  margin-bottom:8px;
+  padding-left:2px;
+}
+
+/* Setting rows */
+.card{
+  background:var(--bg1);
+  border:1px solid var(--rim);
+  border-radius:12px;
+  overflow:hidden;
+  flex-shrink:0;
+}
+
+.setting-row{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:13px 16px;
+  gap:12px;
+  transition:background 0.12s;
+}
+.setting-row:not(:last-child){border-bottom:1px solid var(--rim)}
+.setting-row:hover{background:var(--w08)}
+
+.setting-info{display:flex;flex-direction:column;gap:1px}
+.setting-name{font-size:12.5px;font-weight:600;color:var(--w80)}
+.setting-desc{font-size:10.5px;font-weight:400;color:var(--w30);margin-top:1px}
+
+/* Small toggle */
+.tog{
+  position:relative;width:36px;height:20px;cursor:pointer;flex-shrink:0;
+}
+.tog input{position:absolute;opacity:0;width:0;height:0}
+.tog-track{
+  position:absolute;inset:0;
+  background:var(--bg3);border:1px solid var(--rim2);
+  border-radius:100px;
+  transition:background 0.2s,border-color 0.2s,box-shadow 0.2s;
+}
+.tog input:checked ~ .tog-track{
+  background:var(--green);border-color:var(--green);
+  box-shadow:0 0 8px rgba(52,217,98,0.35);
+}
+.tog-thumb{
+  position:absolute;top:2px;left:2px;
+  width:14px;height:14px;border-radius:50%;
+  background:var(--w50);
+  transition:transform 0.2s cubic-bezier(0.22,1,0.36,1),background 0.2s;
+}
+.tog input:checked ~ .tog-track .tog-thumb{
+  transform:translateX(16px);background:var(--w100);
+}
+
+/* Stats bar */
+#stats-card{
+  background:var(--bg1);
+  border:1px solid var(--rim);
+  border-radius:12px;
+  padding:14px 16px;
+  display:flex;gap:16px;
+  flex-shrink:0;
+}
+.stat-item{flex:1;display:flex;flex-direction:column;gap:6px}
+.stat-label{font-size:9px;font-weight:700;color:var(--w30);letter-spacing:0.14em;text-transform:uppercase}
+.stat-row{display:flex;align-items:center;justify-content:space-between}
+.stat-val{font-size:13px;font-weight:700;color:var(--w80);font-variant-numeric:tabular-nums}
+.stat-bar-bg{height:3px;background:var(--w08);border-radius:2px;overflow:hidden;margin-top:2px}
+.stat-bar-fill{height:100%;border-radius:2px;background:var(--w50);width:0%;transition:width 0.8s ease,background 0.3s}
+.stat-bar-fill.mid{background:#ffaa00}
+.stat-bar-fill.high{background:var(--red)}
+
+/* Version footer */
+#footer{
+  margin-top:auto;
+  padding-top:8px;
+  display:flex;align-items:center;justify-content:space-between;
+}
+.footer-ver{font-size:10px;font-weight:400;color:var(--w15)}
+.footer-link{
+  font-size:10px;font-weight:600;color:var(--w30);
+  cursor:pointer;text-decoration:none;
+  transition:color 0.15s;
+}
+.footer-link:hover{color:var(--green)}
+
+/* Scrollbar */
+#app::-webkit-scrollbar{width:3px}
+#app::-webkit-scrollbar-track{background:transparent}
+#app::-webkit-scrollbar-thumb{background:var(--w15);border-radius:2px}
+</style>
+</head>
+<body>
+
+<div id="titlebar">
+  <span id="titlebar-title">WinNotch</span>
+  <button id="btn-close" title="Hide to tray">
+    <svg viewBox="0 0 8 8" fill="none" stroke="rgba(0,0,0,0.8)" stroke-width="1.5" stroke-linecap="round">
+      <line x1="1" y1="1" x2="7" y2="7"/><line x1="7" y1="1" x2="1" y2="7"/>
+    </svg>
+  </button>
+</div>
+
+<div id="app">
+
+  <!-- Hero card: on/off -->
+  <div id="hero">
+    <div class="hero-left">
+      <div class="hero-name">WinNotch</div>
+      <div class="hero-sub">Dynamic Island for Windows</div>
+      <div id="status-pill" class="on">
+        <div class="status-dot pulse"></div>
+        <span id="status-text">Running</span>
+      </div>
+    </div>
+    <label id="power-toggle">
+      <input type="checkbox" id="power-check" checked>
+      <div id="power-track">
+        <div id="power-thumb">
+          <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+            <path d="M5 1v4M3 2.2A4 4 0 1 0 7 2.2"/>
+          </svg>
+        </div>
+      </div>
+    </label>
+  </div>
+
+  <!-- Live stats -->
+  <div>
+    <div class="section-label">Live Stats</div>
+    <div id="stats-card">
+      <div class="stat-item">
+        <div class="stat-label">CPU</div>
+        <div class="stat-row">
+          <div class="stat-val" id="s-cpu">--%</div>
+        </div>
+        <div class="stat-bar-bg"><div class="stat-bar-fill" id="s-cpu-bar"></div></div>
+      </div>
+      <div style="width:1px;background:var(--rim);flex-shrink:0"></div>
+      <div class="stat-item">
+        <div class="stat-label">RAM</div>
+        <div class="stat-row">
+          <div class="stat-val" id="s-ram">--%</div>
+        </div>
+        <div class="stat-bar-bg"><div class="stat-bar-fill" id="s-ram-bar"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings -->
+  <div>
+    <div class="section-label">Appearance</div>
+    <div class="card">
+      <div class="setting-row">
+        <div class="setting-info">
+          <div class="setting-name">Show on all workspaces</div>
+          <div class="setting-desc">Notch stays visible across virtual desktops</div>
+        </div>
+        <label class="tog">
+          <input type="checkbox" id="tog-workspaces" checked>
+          <div class="tog-track"><div class="tog-thumb"></div></div>
+        </label>
+      </div>
+      <div class="setting-row">
+        <div class="setting-info">
+          <div class="setting-name">Show CPU in collapsed pill</div>
+          <div class="setting-desc">Displays CPU % when no media is playing</div>
+        </div>
+        <label class="tog">
+          <input type="checkbox" id="tog-cpu" checked>
+          <div class="tog-track"><div class="tog-thumb"></div></div>
+        </label>
+      </div>
+      <div class="setting-row">
+        <div class="setting-info">
+          <div class="setting-name">Album art glow</div>
+          <div class="setting-desc">Green pulsing glow on album art thumbnail</div>
+        </div>
+        <label class="tog">
+          <input type="checkbox" id="tog-glow" checked>
+          <div class="tog-track"><div class="tog-thumb"></div></div>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="section-label">Behavior</div>
+    <div class="card">
+      <div class="setting-row">
+        <div class="setting-info">
+          <div class="setting-name">Start with Windows</div>
+          <div class="setting-desc">Launch WinNotch automatically at login</div>
+        </div>
+        <label class="tog">
+          <input type="checkbox" id="tog-startup">
+          <div class="tog-track"><div class="tog-thumb"></div></div>
+        </label>
+      </div>
+      <div class="setting-row">
+        <div class="setting-info">
+          <div class="setting-name">Stay on top of fullscreen</div>
+          <div class="setting-desc">Notch appears over fullscreen apps</div>
+        </div>
+        <label class="tog">
+          <input type="checkbox" id="tog-fullscreen" checked>
+          <div class="tog-track"><div class="tog-thumb"></div></div>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div id="footer">
+    <span class="footer-ver">v1.0.0</span>
+    <span class="footer-link" id="btn-quit">Quit WinNotch</span>
+  </div>
+
+</div>
+
+<script>
+'use strict';
+
+// Close button — hide window to tray
+document.getElementById('btn-close').addEventListener('click', () => {
+  window.settingsApi?.hide();
+});
+
+// Quit
+document.getElementById('btn-quit').addEventListener('click', () => {
+  window.settingsApi?.quit();
+});
+
+// Power toggle
+const powerCheck = document.getElementById('power-check');
+const statusPill = document.getElementById('status-pill');
+const statusText = document.getElementById('status-text');
+const statusDot  = document.querySelector('.status-dot');
+
+powerCheck.addEventListener('change', () => {
+  const on = powerCheck.checked;
+  window.settingsApi?.setEnabled(on);
+  updateStatus(on);
+});
+
+function updateStatus(on) {
+  if (on) {
+    statusPill.className = 'on';
+    statusText.textContent = 'Running';
+    statusDot.classList.add('pulse');
+  } else {
+    statusPill.className = 'off';
+    statusText.textContent = 'Hidden';
+    statusDot.classList.remove('pulse');
+  }
+}
+
+// Settings toggles — save via IPC
+document.getElementById('tog-startup').addEventListener('change', e => {
+  window.settingsApi?.setSetting('startup', e.target.checked);
+});
+document.getElementById('tog-workspaces').addEventListener('change', e => {
+  window.settingsApi?.setSetting('workspaces', e.target.checked);
+});
+document.getElementById('tog-cpu').addEventListener('change', e => {
+  window.settingsApi?.setSetting('showCpu', e.target.checked);
+});
+document.getElementById('tog-glow').addEventListener('change', e => {
+  window.settingsApi?.setSetting('artGlow', e.target.checked);
+});
+document.getElementById('tog-fullscreen').addEventListener('change', e => {
+  window.settingsApi?.setSetting('fullscreen', e.target.checked);
+});
+
+// Load saved settings
+async function loadSettings() {
+  try {
+    const s = await window.settingsApi?.getSettings();
+    if (!s) return;
+    if (s.startup    !== undefined) document.getElementById('tog-startup').checked    = s.startup;
+    if (s.workspaces !== undefined) document.getElementById('tog-workspaces').checked = s.workspaces;
+    if (s.showCpu    !== undefined) document.getElementById('tog-cpu').checked        = s.showCpu;
+    if (s.artGlow    !== undefined) document.getElementById('tog-glow').checked       = s.artGlow;
+    if (s.fullscreen !== undefined) document.getElementById('tog-fullscreen').checked = s.fullscreen;
+    if (s.enabled    !== undefined) {
+      powerCheck.checked = s.enabled;
+      updateStatus(s.enabled);
+    }
+  } catch(_) {}
+}
+loadSettings();
+
+// Stats polling
+async function refreshStats() {
+  try {
+    const s = await window.settingsApi?.getStats();
+    if (!s) return;
+    const barCls = p => p >= 80 ? 'high' : p >= 55 ? 'mid' : '';
+    document.getElementById('s-cpu').textContent = s.cpu + '%';
+    const cb = document.getElementById('s-cpu-bar');
+    cb.style.width = s.cpu + '%';
+    cb.className = 'stat-bar-fill ' + barCls(s.cpu);
+    document.getElementById('s-ram').textContent = s.ram + '%';
+    const rb = document.getElementById('s-ram-bar');
+    rb.style.width = s.ram + '%';
+    rb.className = 'stat-bar-fill ' + barCls(s.ram);
+  } catch(_) {}
+}
+refreshStats();
+setInterval(refreshStats, 2000);
+</script>
+</body>
+</html>

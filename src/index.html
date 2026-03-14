@@ -14,9 +14,9 @@
 
 :root{
   --font:'Sora',system-ui,sans-serif;
-  --cw:262px; --ch:34px;
+  --cw:262px; --ch:38px;
   --ew:490px; --eh:152px;
-  --ink:#000;
+  --ink:#000000;
   --w100:#fff;
   --w90:rgba(255,255,255,0.92);
   --w65:rgba(255,255,255,0.65);
@@ -47,7 +47,7 @@ html,body{
   position:absolute;top:0;left:50%;transform:translateX(-50%);
   width:var(--cw);height:var(--ch);
   border-radius:0 0 14px 14px;
-  filter:drop-shadow(0 5px 20px rgba(0,0,0,0.85)) drop-shadow(0 1px 5px rgba(0,0,0,0.60));
+  filter:drop-shadow(0 5px 20px rgba(0, 0, 0, 0)) drop-shadow(0 1px 5px rgba(0, 0, 0, 0));
   transition:width var(--dur-close) var(--ease-close),height var(--dur-close) var(--ease-close),border-radius var(--dur-close) var(--ease-close);
   will-change:width,height;z-index:0;
 }
@@ -408,6 +408,18 @@ function srcInfo(s){
   return{cls:'br',lbl:'MEDIA'};
 }
 
+// ── Detect image format from base64 header ────────────────────────────────────
+function b64ToDataUrl(b64){
+  try{
+    const bin=atob(b64.slice(0,16));
+    const b0=bin.charCodeAt(0),b1=bin.charCodeAt(1),
+          b2=bin.charCodeAt(2),b3=bin.charCodeAt(3);
+    if(b0===0x89&&b1===0x50&&b2===0x4E&&b3===0x47) return 'data:image/png;base64,'+b64;
+    if(b0===0x52&&b1===0x49&&b2===0x46&&b3===0x46) return 'data:image/webp;base64,'+b64;
+    return 'data:image/jpeg;base64,'+b64;
+  }catch(_){ return 'data:image/jpeg;base64,'+b64; }
+}
+
 // ── Pill art ───────────────────────────────────────────────────────────────────
 let lastPillArt='';
 
@@ -433,7 +445,7 @@ function setPillArt(art, playing){
       // Keep placeholder
       artEl.innerHTML=`<div id="pill-art-ph"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>`;
     };
-    img.src='data:image/jpeg;base64,'+art;
+    img.src=b64ToDataUrl(art);
   }
 
   // Show/hide
@@ -497,7 +509,7 @@ async function refreshMedia(){
       const img=new Image();
       img.onload=()=>{ artEl.innerHTML=''; const el=document.createElement('img'); el.src=img.src; artEl.appendChild(el); };
       img.onerror=()=>{ artEl.innerHTML=ART_PH; };
-      img.src='data:image/jpeg;base64,'+m.art;
+      img.src=b64ToDataUrl(m.art);
     } else if(!m.art && m.title!==lastTitle){
       document.getElementById('m-art').innerHTML=ART_PH; lastArt='';
     }
