@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>WinNotch — Refined Media Controls</title>
+<title>WinNotch — Vibrant Wave Colors</title>
 <style>
 @font-face { font-family:'Sora'; src:url('fonts/Sora-Regular.ttf') format('truetype'); font-weight:400; }
 @font-face { font-family:'Sora'; src:url('fonts/Sora-SemiBold.ttf') format('truetype'); font-weight:600; }
@@ -29,6 +29,9 @@
   --w04:  rgba(255,255,255,.04);
   --ease-open:  cubic-bezier(.22,1,.36,1);
   --ease-close: cubic-bezier(.4,0,1,.55);
+  
+  /* Dynamic accent color - updated by JS */
+  --wave-color: rgba(255, 255, 255, 0.9);
 }
 *,*::before,*::after { margin:0; padding:0; box-sizing:border-box; }
 html,body {
@@ -80,7 +83,7 @@ html,body {
   transition:opacity 70ms ease, transform 130ms var(--ease-close);
 }
 
-/* LEFT SIDE: Album thumbnail — LESS ROUNDED, SHIFTED RIGHT, PERFECT SIZE */
+/* LEFT SIDE: Album thumbnail */
 #pill-art {
   flex-shrink:0;
   position:relative;
@@ -88,14 +91,13 @@ html,body {
   opacity:0;
   visibility:hidden;
   transition:opacity 300ms ease;
-  border-radius: 4px;          /* Less rounded: was 6px, now 4px — sharper, modern look */
+  border-radius: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
   background: #1a1a1e;
   box-shadow: 0 1px 2px rgba(0,0,0,0.3);
-  /* Shift to the right: add left margin to push it away from left edge */
-  margin-left: 4px;
+  margin-left: 5px;
 }
 #pill-art.visible {
   opacity:1;
@@ -106,7 +108,7 @@ html,body {
   height: 100%;
   object-fit: cover;
   display: block;
-  border-radius: 4px;          /* Match container's less-rounded corners */
+  border-radius: 4px;
 }
 .pill-ph {
   width: 100%;
@@ -119,7 +121,7 @@ html,body {
   border-radius: 4px;
 }
 
-/* RIGHT SIDE: Wave animation — refined spacing */
+/* RIGHT SIDE: Wave animation with dynamic color */
 #pill-wave {
   flex-shrink:0;
   height:100%;
@@ -131,16 +133,16 @@ html,body {
   opacity:0;
   visibility:hidden;
   transition:opacity 300ms ease 80ms;
-  margin-right: 2px;           /* subtle breathing room */
+  margin-right: 2px;
 }
 #pill-wave.visible {
   opacity:1;
   visibility:visible;
 }
 .wbar {
-  width:2.8px;
+  width:3px;
   border-radius:99px;
-  background:rgba(255,255,255,.8);
+  background: var(--wave-color);
   transform-origin:center;
   transition:background-color 0.2s ease, height 0.15s ease;
 }
@@ -150,18 +152,19 @@ html,body {
 #pill-wave.paused .wbar {
   height:3px !important;
   animation:none;
-  background:rgba(255,255,255,.45);
+  background: rgba(255,255,255,.45);
+  box-shadow: none;
 }
 .wbar:nth-child(1){--d:.55s;height:6px; animation-delay:.00s}
 .wbar:nth-child(2){--d:.70s;height:11px;animation-delay:.12s}
 .wbar:nth-child(3){--d:.62s;height:8px; animation-delay:.22s}
 .wbar:nth-child(4){--d:.78s;height:13px;animation-delay:.06s}
 @keyframes wave {
-  0%  { transform:scaleY(.28) }
-  100%{ transform:scaleY(1)   }
+  0%  { transform:scaleY(.28); opacity:0.7; }
+  100%{ transform:scaleY(1); opacity:1; }
 }
 
-/* ── Expanded panel (unchanged, elegant) ── */
+/* ── Expanded panel ── */
 #panel {
   position:absolute;
   inset:0;
@@ -387,7 +390,6 @@ html,body {
 <div id="notch-hit"></div>
 
 <div id="notch-content">
-  <!-- Collapsed pill - LEFT: thumbnail (less rounded, shifted right), RIGHT: wave animation -->
   <div id="pill">
     <div id="pill-art">
       <div class="pill-ph">
@@ -404,7 +406,6 @@ html,body {
     </div>
   </div>
 
-  <!-- Expanded panel -->
   <div id="panel">
     <div id="no-media">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
@@ -474,21 +475,16 @@ function applyShape(nw,nh,rb) {
   hitEl.style.cssText=`width:${tw}px;height:${nh}px`;
   contEl.style.cssText=`width:${nw}px;height:${nh}px;overflow:hidden`;
 
-  // ★ Thumbnail: compact size (55% of notch height), less rounded (4px), shifted right via margin-left
   const pillArt = document.getElementById('pill-art');
-  const thumbSize = nh * 0.65;        // slightly smaller = modern, refined
+  const thumbSize = nh * 0.65;
   pillArt.style.width = thumbSize + 'px';
   pillArt.style.height = thumbSize + 'px';
   pillArt.style.minWidth = thumbSize + 'px';
   pillArt.style.maxWidth = thumbSize + 'px';
   pillArt.style.minHeight = thumbSize + 'px';
   pillArt.style.maxHeight = thumbSize + 'px';
-  pillArt.style.borderRadius = '2px';     // less rounded (was 6px)
-  pillArt.style.display = 'flex';
-  pillArt.style.alignItems = 'center';
-  pillArt.style.justifyContent = 'center';
-  pillArt.style.margin = 'auto 0';        // vertical centering
-  pillArt.style.marginLeft = '5px';       // SHIFT RIGHT: adds breathing space from left edge
+  pillArt.style.borderRadius = '2px';
+  pillArt.style.marginLeft = '5px';
   pillArt.style.background = '#1a1a1e';
 }
 
@@ -567,7 +563,151 @@ function srcInfo(s){
   return{cls:'br',lbl:'MEDIA'};
 }
 
-// ── Art functions with refined thumbnail styling ─────────────────────────────
+// ── 🎨 VIBRANT COLOR EXTRACTION (FIXED - MORE AGGRESSIVE) ────────────────────
+function extractVibrantColor(imageUrl, callback) {
+  const img = new Image();
+  img.crossOrigin = "Anonymous";
+  
+  img.onload = () => {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    
+    // Sample from a good size for accuracy
+    const sampleSize = 100;
+    canvas.width = sampleSize;
+    canvas.height = sampleSize;
+    ctx.drawImage(img, 0, 0, sampleSize, sampleSize);
+    
+    const imageData = ctx.getImageData(0, 0, sampleSize, sampleSize);
+    const data = imageData.data;
+    
+    // Store color frequencies
+    const colorMap = new Map();
+    
+    // Sample all pixels to find most vibrant colors
+    for (let i = 0; i < data.length; i += 4) {
+      let r = data[i];
+      let g = data[i+1];
+      let b = data[i+2];
+      
+      // Skip very dark or very light pixels
+      const brightness = (r + g + b) / 3;
+      if (brightness < 40 || brightness > 230) continue;
+      
+      // Quantize colors to reduce noise
+      r = Math.floor(r / 10) * 10;
+      g = Math.floor(g / 10) * 10;
+      b = Math.floor(b / 10) * 10;
+      
+      const key = `${r},${g},${b}`;
+      colorMap.set(key, (colorMap.get(key) || 0) + 1);
+    }
+    
+    if (colorMap.size === 0) {
+      callback('rgba(255, 255, 255, 0.9)');
+      return;
+    }
+    
+    // Find most frequent colors
+    const sortedColors = Array.from(colorMap.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+    
+    // Calculate vibrance score and pick the most vibrant
+    let bestColor = null;
+    let bestScore = -1;
+    
+    for (const [colorKey] of sortedColors) {
+      const [r, g, b] = colorKey.split(',').map(Number);
+      
+      // Calculate saturation and brightness
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      const saturation = max === 0 ? 0 : (max - min) / max;
+      const brightness = max / 255;
+      
+      // Score: favor high saturation and medium-high brightness
+      const score = saturation * brightness * 100;
+      
+      if (score > bestScore) {
+        bestScore = score;
+        bestColor = { r, g, b };
+      }
+    }
+    
+    if (bestColor) {
+      // Boost saturation and brightness for vibrant wave colors
+      let { r, g, b } = bestColor;
+      
+      // Convert to HSL for better color manipulation
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      let h, s, l;
+      
+      // Calculate hue
+      if (max === min) {
+        h = 0;
+      } else if (max === r) {
+        h = 60 * ((g - b) / (max - min));
+      } else if (max === g) {
+        h = 60 * (2 + (b - r) / (max - min));
+      } else {
+        h = 60 * (4 + (r - g) / (max - min));
+      }
+      if (h < 0) h += 360;
+      
+      // Calculate saturation and lightness
+      s = (max - min) / max;
+      l = max / 255;
+      
+      // Boost saturation aggressively
+      s = Math.min(1, s * 1.8);
+      
+      // Adjust lightness to be vibrant (not too dark, not too light)
+      if (l < 0.5) {
+        l = l * 1.3;
+      } else if (l > 0.8) {
+        l = l * 0.9;
+      }
+      l = Math.min(0.85, Math.max(0.45, l));
+      
+      // Convert back to RGB with boosted saturation
+      const hue2rgb = (p, q, t) => {
+        if (t < 0) t += 1;
+        if (t > 1) t -= 1;
+        if (t < 1/6) return p + (q - p) * 6 * t;
+        if (t < 1/2) return q;
+        if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+        return p;
+      };
+      
+      const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+      const p = 2 * l - q;
+      const hNorm = h / 360;
+      
+      const finalR = Math.round(hue2rgb(p, q, hNorm + 1/3) * 255);
+      const finalG = Math.round(hue2rgb(p, q, hNorm) * 255);
+      const finalB = Math.round(hue2rgb(p, q, hNorm - 1/3) * 255);
+      
+      const vibrantColor = `rgba(${finalR}, ${finalG}, ${finalB}, 0.95)`;
+      callback(vibrantColor);
+    } else {
+      callback('rgba(255, 255, 255, 0.9)');
+    }
+  };
+  
+  img.onerror = () => {
+    callback('rgba(255, 255, 255, 0.9)');
+  };
+  
+  img.src = imageUrl;
+}
+
+function updateWaveColor(color) {
+  document.documentElement.style.setProperty('--wave-color', color);
+}
+
+// ── Art functions ─────────────────────────────────────────────────────────────
 function b64ToDataUrl(b64){
   if(!b64) return null;
   try{
@@ -588,14 +728,17 @@ function updateThumbnail(b64){
 
   currentThumbnailUrl = url;
 
-  // Update pill thumbnail — less rounded corners (4px), image fills container perfectly
   const pillArt = document.getElementById('pill-art');
   pillArt.innerHTML = `<img src="${url}" alt="album art" style="width:100%; height:100%; object-fit:cover; display:block; border-radius:4px;">`;
   if(mediaPlaying) pillArt.classList.add('visible');
 
-  // Expanded panel art (unchanged, larger)
   const panelArt = document.getElementById('m-art');
   panelArt.innerHTML = `<img src="${url}" alt="album art" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:11px;display:block">`;
+
+  // Extract vibrant color for waves
+  extractVibrantColor(url, (accentColor) => {
+    updateWaveColor(accentColor);
+  });
 
   return true;
 }
@@ -609,6 +752,7 @@ function clearThumbnails(){
   pillArt.classList.remove('visible');
   document.getElementById('m-art').innerHTML = ART_PH;
   currentThumbnailUrl = null;
+  updateWaveColor('rgba(255, 255, 255, 0.8)');
 }
 
 // ── Art fetch management ─────────────────────────────────────────────────────
@@ -632,7 +776,6 @@ async function fetchAndApplyArt(artKey, mediaMeta){
   }
 }
 
-// ── UI visibility ────────────────────────────────────────────────────────────
 function showNoMedia(){
   document.getElementById('no-media').style.display='flex';
   document.getElementById('m-art').style.visibility='hidden';
@@ -648,7 +791,6 @@ function showMedia(){
   document.querySelector('#panel > div:last-child').style.visibility='visible';
 }
 
-// ── Main poll ─────────────────────────────────────────────────────────────────
 async function poll(){
   try{
     if(!window.api?.getMedia) return;
@@ -686,7 +828,6 @@ async function poll(){
     wEl.classList.toggle('playing', mediaPlaying);
     wEl.classList.toggle('paused', !mediaPlaying);
 
-    // Pill notch visibility: show small thumbnail (less rounded, right-shifted) + wave when playing
     const pillArt = document.getElementById('pill-art');
     if(mediaPlaying){
       wEl.classList.add('visible');
@@ -729,7 +870,6 @@ async function poll(){
   }
 }
 
-// Start polling
 showNoMedia();
 poll();
 setInterval(poll, 2000);
