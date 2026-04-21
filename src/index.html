@@ -11,7 +11,7 @@
 
 :root {
   --notch-w:   200px;
-  --notch-h:   28px;
+  --notch-h:   33px;
   --notch-ear: 9px;
   --notch-rb:  10px;
   --panel-w:   420px;
@@ -29,9 +29,26 @@
   --w04:  rgba(255,255,255,.04);
   --ease-open:  cubic-bezier(.22,1,.36,1);
   --ease-close: cubic-bezier(.4,0,1,.55);
-  
-  /* Dynamic accent color - updated by JS */
-  --wave-color: rgba(255, 255, 255, 0.9);
+
+  /* Dynamic accent — updated by JS as "R, G, B" */
+  --accent-rgb: 255, 255, 255;
+  --wave-color: rgba(var(--accent-rgb), 0.92);
+
+  /* Glow tokens — pure backlight, no border ring */
+  --glow-pill:
+    0 0 10px 4px  rgba(var(--accent-rgb), 0.45),
+    0 0 22px 8px  rgba(var(--accent-rgb), 0.22),
+    0 0 40px 14px rgba(var(--accent-rgb), 0.10);
+
+  --glow-panel:
+    0 0 12px 5px  rgba(var(--accent-rgb), 0.38),
+    0 0 28px 10px rgba(var(--accent-rgb), 0.18),
+    0 0 50px 16px rgba(var(--accent-rgb), 0.08);
+
+  /* Wave bar glow */
+  --wave-glow:
+    0 0 4px  2px rgba(var(--accent-rgb), 0.55),
+    0 0 10px 3px rgba(var(--accent-rgb), 0.25);
 }
 *,*::before,*::after { margin:0; padding:0; box-sizing:border-box; }
 html,body {
@@ -83,25 +100,25 @@ html,body {
   transition:opacity 70ms ease, transform 130ms var(--ease-close);
 }
 
-/* LEFT SIDE: Album thumbnail */
+/* LEFT SIDE: Album thumbnail — pill */
 #pill-art {
   flex-shrink:0;
   position:relative;
   overflow:hidden;
   opacity:0;
   visibility:hidden;
-  transition:opacity 300ms ease;
+  transition: opacity 300ms ease;
   border-radius: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
   background: #1a1a1e;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+  box-shadow: none;
   margin-left: 5px;
 }
 #pill-art.visible {
-  opacity:1;
-  visibility:visible;
+  opacity: 1;
+  visibility: visible;
 }
 #pill-art img {
   width: 100%;
@@ -121,7 +138,28 @@ html,body {
   border-radius: 4px;
 }
 
-/* RIGHT SIDE: Wave animation with dynamic color */
+/* Glow ghost — sits OUTSIDE #notch-content so overflow:hidden doesn't clip it,
+   z-index 2 = behind notch-content (z:3) so glow bleeds out from UNDER the thumbnail */
+#pill-art-glow {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  pointer-events: none;
+  border-radius: 4px;
+  opacity: 0;
+  box-shadow: none;
+  transition:
+    opacity 500ms ease,
+    box-shadow 600ms ease;
+}
+#pill-art-glow.glowing {
+  opacity: 1;
+  box-shadow: var(--glow-pill);
+}
+
+/* RIGHT SIDE: Wave animation */
 #pill-wave {
   flex-shrink:0;
   height:100%;
@@ -140,19 +178,24 @@ html,body {
   visibility:visible;
 }
 .wbar {
-  width:2px;
-  border-radius:120px;
+  width: 2px;
+  border-radius: 120px;
   background: var(--wave-color);
-  transform-origin:center;
-  transition:background-color 0.2s ease, height 0.15s ease;
+  transform-origin: center;
+  transition:
+    background-color 0.4s ease,
+    filter 0.4s ease,
+    height 0.15s ease;
 }
 #pill-wave.playing .wbar {
-  animation:wave var(--d,.65s) ease-in-out infinite alternate;
+  animation: wave var(--d,.65s) ease-in-out infinite alternate;
+  filter: var(--wave-glow);
 }
 #pill-wave.paused .wbar {
-  height:3px !important;
-  animation:none;
+  height: 3px !important;
+  animation: none;
   background: rgba(255,255,255,.45);
+  filter: none;
   box-shadow: none;
 }
 .wbar:nth-child(1){--d:.55s;height:6px; animation-delay:.00s}
@@ -161,7 +204,7 @@ html,body {
 .wbar:nth-child(4){--d:.78s;height:13px;animation-delay:.06s}
 @keyframes wave {
   0%  { transform:scaleY(.28); opacity:0.7; }
-  100%{ transform:scaleY(1); opacity:1; }
+  100%{ transform:scaleY(1);   opacity:1; }
 }
 
 /* ── Expanded panel ── */
@@ -187,29 +230,33 @@ html,body {
   transition:opacity 220ms ease 110ms, transform 440ms var(--ease-open) 70ms;
 }
 
-/* Panel album art */
+/* Panel album art — backlight glow only, no border ring */
 #m-art {
-  width:56px;
-  height:56px;
-  border-radius:12px;
-  flex-shrink:0;
-  overflow:hidden;
-  background:#1a1a1e;
-  border:1px solid var(--w14);
-  position:relative;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  box-shadow:0 8px 18px rgba(0,0,0,.5);
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  flex-shrink: 0;
+  overflow: hidden;
+  background: #1a1a1e;
+  border: none;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: none;
+  transition: box-shadow 600ms ease;
+}
+#m-art.glowing {
+  box-shadow: var(--glow-panel);
 }
 #m-art img {
-  position:absolute;
-  inset:0;
-  width:100%;
-  height:100%;
-  object-fit:cover;
-  border-radius:11px;
-  display:block;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 11px;
+  display: block;
 }
 .art-ph {
   color:var(--w25);
@@ -256,9 +303,9 @@ html,body {
 #m-prog-fill {
   height:100%;
   border-radius:3px;
-  background:rgba(255,255,255,.55);
+  background: rgba(var(--accent-rgb), 0.60);
   width:0%;
-  transition:width 1s linear;
+  transition:width 1s linear, background 600ms ease;
 }
 #m-time {
   display:flex;
@@ -364,9 +411,7 @@ html,body {
   backdrop-filter:blur(12px);
   border-radius:18px;
 }
-#no-media svg {
-  color:var(--w25);
-}
+#no-media svg { color:var(--w25); }
 #no-media span {
   font-size:10px;
   font-weight:600;
@@ -386,6 +431,9 @@ html,body {
   <path id="notch-shadow"/>
   <path id="notch-body"/>
 </svg>
+
+<!-- Pill glow ghost: lives OUTSIDE #notch-content so overflow:hidden won't clip it -->
+<div id="pill-art-glow"></div>
 
 <div id="notch-hit"></div>
 
@@ -460,11 +508,11 @@ function makePath(nw,nh,ear,rb) {
   return `M 0,0 Q ${lx},0 ${lx},${ear} L ${lx},${nh-r} Q ${lx},${nh} ${lx+r},${nh} L ${rx-r},${nh} Q ${rx},${nh} ${rx},${nh-r} L ${rx},${ear} Q ${rx},0 ${ex},0 Z`;
 }
 
-const svgEl=document.getElementById('notch-svg');
-const bodyPath=document.getElementById('notch-body');
-const shadPath=document.getElementById('notch-shadow');
-const hitEl=document.getElementById('notch-hit');
-const contEl=document.getElementById('notch-content');
+const svgEl    = document.getElementById('notch-svg');
+const bodyPath = document.getElementById('notch-body');
+const shadPath = document.getElementById('notch-shadow');
+const hitEl    = document.getElementById('notch-hit');
+const contEl   = document.getElementById('notch-content');
 
 function applyShape(nw,nh,rb) {
   const ear=EAR(), tw=nw+ear*2, d=makePath(nw,nh,ear,rb);
@@ -475,30 +523,49 @@ function applyShape(nw,nh,rb) {
   hitEl.style.cssText=`width:${tw}px;height:${nh}px`;
   contEl.style.cssText=`width:${nw}px;height:${nh}px;overflow:hidden`;
 
-  const pillArt = document.getElementById('pill-art');
+  const pillArt   = document.getElementById('pill-art');
   const thumbSize = nh * 0.65;
-  pillArt.style.width = thumbSize + 'px';
-  pillArt.style.height = thumbSize + 'px';
-  pillArt.style.minWidth = thumbSize + 'px';
-  pillArt.style.maxWidth = thumbSize + 'px';
-  pillArt.style.minHeight = thumbSize + 'px';
-  pillArt.style.maxHeight = thumbSize + 'px';
-  pillArt.style.borderRadius = '2px';
-  pillArt.style.marginLeft = '5px';
-  pillArt.style.background = '#1a1a1e';
+  const thumbMargin = 5;
+  Object.assign(pillArt.style, {
+    width:       thumbSize + 'px',
+    height:      thumbSize + 'px',
+    minWidth:    thumbSize + 'px',
+    maxWidth:    thumbSize + 'px',
+    minHeight:   thumbSize + 'px',
+    maxHeight:   thumbSize + 'px',
+    borderRadius:'4px',
+    marginLeft:  thumbMargin + 'px',
+    background:  '#1a1a1e'
+  });
+
+  // Sync ghost glow element: same position as pill-art but outside notch-content
+  // pill-art is left-aligned inside notch-content which is centered on screen
+  // notch-content left edge = 50vw - nw/2
+  const ghost = document.getElementById('pill-art-glow');
+  const contentLeft = window.innerWidth / 2 - nw / 2;
+  const ghostLeft   = contentLeft + thumbMargin;
+  const ghostTop    = (nh - thumbSize) / 2;
+  Object.assign(ghost.style, {
+    left:         ghostLeft + 'px',
+    top:          ghostTop  + 'px',
+    width:        thumbSize + 'px',
+    height:       thumbSize + 'px',
+    transform:    'none',
+    borderRadius: '4px'
+  });
 }
 
-let curW=CW(),curH=CH(),curRb=CR(),animId=null;
+let curW=CW(), curH=CH(), curRb=CR(), animId=null;
 applyShape(curW,curH,curRb);
 
-const easeOpen = t=>1-Math.pow(1-t,3.2);
-const easeClose = t=>t*(2-t);
+const easeOpen  = t => 1-Math.pow(1-t,3.2);
+const easeClose = t => t*(2-t);
 
 function animateTo(toW,toH,toRb,dur,fn) {
   if(animId) cancelAnimationFrame(animId);
-  const fw=curW,fh=curH,fr=curRb,t0=performance.now();
+  const fw=curW, fh=curH, fr=curRb, t0=performance.now();
   (function tick(now){
-    const t=Math.min(1,(now-t0)/dur),e=fn(t);
+    const t=Math.min(1,(now-t0)/dur), e=fn(t);
     curW=fw+(toW-fw)*e; curH=fh+(toH-fh)*e; curRb=fr+(toRb-fr)*e;
     applyShape(curW,curH,curRb);
     if(t<1) animId=requestAnimationFrame(tick); else animId=null;
@@ -524,204 +591,156 @@ function closeNotch() {
   window.api?.mouseLeave();
 }
 
-hitEl.addEventListener('click', e=>{
+hitEl.addEventListener('click', e => {
   if(e.target.closest('.mc')) return;
   if(!hasMedia && !isOpen) return;
   isOpen ? closeNotch() : openNotch();
 });
-document.addEventListener('click', e=>{
+document.addEventListener('click', e => {
   if(!isOpen) return;
-  if(!hitEl.contains(e.target)&&!contEl.contains(e.target)) closeNotch();
-},{capture:true});
+  if(!hitEl.contains(e.target) && !contEl.contains(e.target)) closeNotch();
+}, {capture:true});
 
 // ── Controls ──────────────────────────────────────────────────────────────────
-function flash(b){b.classList.add('flash');setTimeout(()=>b.classList.remove('flash'),150);}
-function sendCmd(cmd,btn){
+function flash(b){ b.classList.add('flash'); setTimeout(()=>b.classList.remove('flash'),150); }
+function sendCmd(cmd,btn) {
   if(btn) flash(btn);
-  if(cmd==='play'){mediaPlaying=true;setPlay(true);}
-  if(cmd==='pause'){mediaPlaying=false;setPlay(false);}
+  if(cmd==='play')  { mediaPlaying=true;  setPlay(true);  }
+  if(cmd==='pause') { mediaPlaying=false; setPlay(false); }
   window.api?.mediaCmd(cmd).catch(()=>{});
 }
-document.getElementById('btn-play').addEventListener('click',e=>{e.stopPropagation();sendCmd(mediaPlaying?'pause':'play',e.currentTarget);});
-document.getElementById('btn-prev').addEventListener('click',e=>{e.stopPropagation();sendCmd('prev',e.currentTarget);});
-document.getElementById('btn-next').addEventListener('click',e=>{e.stopPropagation();sendCmd('next',e.currentTarget);});
+document.getElementById('btn-play').addEventListener('click',e=>{ e.stopPropagation(); sendCmd(mediaPlaying?'pause':'play',e.currentTarget); });
+document.getElementById('btn-prev').addEventListener('click',e=>{ e.stopPropagation(); sendCmd('prev',e.currentTarget); });
+document.getElementById('btn-next').addEventListener('click',e=>{ e.stopPropagation(); sendCmd('next',e.currentTarget); });
 
-function setPlay(p){
-  document.getElementById('ico-play').style.display=p?'none':'';
-  document.getElementById('ico-pause').style.display=p?'':'none';
+function setPlay(p) {
+  document.getElementById('ico-play').style.display  = p ? 'none' : '';
+  document.getElementById('ico-pause').style.display = p ? ''     : 'none';
 }
-function fmtTime(s){
-  s=Math.max(0,Math.floor(s||0));
+function fmtTime(s) {
+  s = Math.max(0,Math.floor(s||0));
   return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');
 }
-function srcInfo(s){
+function srcInfo(s) {
   if(!s) return{cls:'',lbl:''};
-  const l=s.toLowerCase();
-  if(l.includes('spotify')) return{cls:'sp',lbl:'SPOTIFY'};
-  if(l.includes('youtube')) return{cls:'yt',lbl:'YOUTUBE'};
-  if(l.match(/chrome|msedge|edge|firefox/)) return{cls:'yt',lbl:'BROWSER'};
+  const l = s.toLowerCase();
+  if(l.includes('spotify'))                        return{cls:'sp',lbl:'SPOTIFY'};
+  if(l.includes('youtube'))                        return{cls:'yt',lbl:'YOUTUBE'};
+  if(l.match(/chrome|msedge|edge|firefox/))        return{cls:'yt',lbl:'BROWSER'};
   return{cls:'br',lbl:'MEDIA'};
 }
 
-// ── 🎨 VIBRANT COLOR EXTRACTION (FIXED - MORE AGGRESSIVE) ────────────────────
-function extractVibrantColor(imageUrl, callback) {
+// ── 🎨 ACCENT COLOR EXTRACTION ────────────────────────────────────────────────
+// Returns { r, g, b } as integers 0–255
+function extractVibrantRGB(imageUrl, callback) {
   const img = new Image();
-  img.crossOrigin = "Anonymous";
-  
+  img.crossOrigin = 'Anonymous';
+
   img.onload = () => {
     const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    
-    // Sample from a good size for accuracy
-    const sampleSize = 100;
-    canvas.width = sampleSize;
-    canvas.height = sampleSize;
-    ctx.drawImage(img, 0, 0, sampleSize, sampleSize);
-    
-    const imageData = ctx.getImageData(0, 0, sampleSize, sampleSize);
-    const data = imageData.data;
-    
-    // Store color frequencies
+    const ctx    = canvas.getContext('2d');
+    const sz     = 100;
+    canvas.width = canvas.height = sz;
+    ctx.drawImage(img, 0, 0, sz, sz);
+
+    const data = ctx.getImageData(0, 0, sz, sz).data;
     const colorMap = new Map();
-    
-    // Sample all pixels to find most vibrant colors
-    for (let i = 0; i < data.length; i += 4) {
-      let r = data[i];
-      let g = data[i+1];
-      let b = data[i+2];
-      
-      // Skip very dark or very light pixels
-      const brightness = (r + g + b) / 3;
-      if (brightness < 40 || brightness > 230) continue;
-      
-      // Quantize colors to reduce noise
-      r = Math.floor(r / 10) * 10;
-      g = Math.floor(g / 10) * 10;
-      b = Math.floor(b / 10) * 10;
-      
-      const key = `${r},${g},${b}`;
-      colorMap.set(key, (colorMap.get(key) || 0) + 1);
+
+    for(let i = 0; i < data.length; i += 4) {
+      const r = data[i], g = data[i+1], b = data[i+2];
+      const brightness = (r+g+b)/3;
+      if(brightness < 40 || brightness > 230) continue;
+      const qr = Math.floor(r/10)*10;
+      const qg = Math.floor(g/10)*10;
+      const qb = Math.floor(b/10)*10;
+      const key = `${qr},${qg},${qb}`;
+      colorMap.set(key, (colorMap.get(key)||0)+1);
     }
-    
-    if (colorMap.size === 0) {
-      callback('rgba(255, 255, 255, 0.9)');
-      return;
+
+    if(!colorMap.size) { callback(255,255,255); return; }
+
+    const top = Array.from(colorMap.entries()).sort((a,b)=>b[1]-a[1]).slice(0,5);
+
+    let best = null, bestScore = -1;
+    for(const [k] of top) {
+      const [r,g,b] = k.split(',').map(Number);
+      const max = Math.max(r,g,b), min = Math.min(r,g,b);
+      const sat = max === 0 ? 0 : (max-min)/max;
+      const bri = max/255;
+      const score = sat * bri * 100;
+      if(score > bestScore) { bestScore = score; best = {r,g,b}; }
     }
-    
-    // Find most frequent colors
-    const sortedColors = Array.from(colorMap.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5);
-    
-    // Calculate vibrance score and pick the most vibrant
-    let bestColor = null;
-    let bestScore = -1;
-    
-    for (const [colorKey] of sortedColors) {
-      const [r, g, b] = colorKey.split(',').map(Number);
-      
-      // Calculate saturation and brightness
-      const max = Math.max(r, g, b);
-      const min = Math.min(r, g, b);
-      const saturation = max === 0 ? 0 : (max - min) / max;
-      const brightness = max / 255;
-      
-      // Score: favor high saturation and medium-high brightness
-      const score = saturation * brightness * 100;
-      
-      if (score > bestScore) {
-        bestScore = score;
-        bestColor = { r, g, b };
-      }
-    }
-    
-    if (bestColor) {
-      // Boost saturation and brightness for vibrant wave colors
-      let { r, g, b } = bestColor;
-      
-      // Convert to HSL for better color manipulation
-      const max = Math.max(r, g, b);
-      const min = Math.min(r, g, b);
-      let h, s, l;
-      
-      // Calculate hue
-      if (max === min) {
-        h = 0;
-      } else if (max === r) {
-        h = 60 * ((g - b) / (max - min));
-      } else if (max === g) {
-        h = 60 * (2 + (b - r) / (max - min));
-      } else {
-        h = 60 * (4 + (r - g) / (max - min));
-      }
-      if (h < 0) h += 360;
-      
-      // Calculate saturation and lightness
-      s = (max - min) / max;
-      l = max / 255;
-      
-      // Boost saturation aggressively
-      s = Math.min(1, s * 1.8);
-      
-      // Adjust lightness to be vibrant (not too dark, not too light)
-      if (l < 0.5) {
-        l = l * 1.3;
-      } else if (l > 0.8) {
-        l = l * 0.9;
-      }
-      l = Math.min(0.85, Math.max(0.45, l));
-      
-      // Convert back to RGB with boosted saturation
-      const hue2rgb = (p, q, t) => {
-        if (t < 0) t += 1;
-        if (t > 1) t -= 1;
-        if (t < 1/6) return p + (q - p) * 6 * t;
-        if (t < 1/2) return q;
-        if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
-        return p;
-      };
-      
-      const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-      const p = 2 * l - q;
-      const hNorm = h / 360;
-      
-      const finalR = Math.round(hue2rgb(p, q, hNorm + 1/3) * 255);
-      const finalG = Math.round(hue2rgb(p, q, hNorm) * 255);
-      const finalB = Math.round(hue2rgb(p, q, hNorm - 1/3) * 255);
-      
-      const vibrantColor = `rgba(${finalR}, ${finalG}, ${finalB}, 0.95)`;
-      callback(vibrantColor);
-    } else {
-      callback('rgba(255, 255, 255, 0.9)');
-    }
+
+    if(!best) { callback(255,255,255); return; }
+
+    // Boost to HSL and re-saturate
+    let {r,g,b} = best;
+    const max = Math.max(r,g,b), min = Math.min(r,g,b);
+    let h,s,l;
+    if(max===min) h=0;
+    else if(max===r) h=60*((g-b)/(max-min));
+    else if(max===g) h=60*(2+(b-r)/(max-min));
+    else             h=60*(4+(r-g)/(max-min));
+    if(h<0) h+=360;
+    s = (max-min)/max;
+    l = max/255;
+    s = Math.min(1, s*1.8);
+    if(l<0.5) l*=1.3; else if(l>0.8) l*=0.9;
+    l = Math.min(0.85, Math.max(0.45, l));
+
+    const hue2rgb = (p,q,t) => {
+      if(t<0)   t+=1; if(t>1) t-=1;
+      if(t<1/6) return p+(q-p)*6*t;
+      if(t<1/2) return q;
+      if(t<2/3) return p+(q-p)*(2/3-t)*6;
+      return p;
+    };
+    const q2 = l<0.5 ? l*(1+s) : l+s-l*s;
+    const p2  = 2*l-q2, hn=h/360;
+
+    callback(
+      Math.round(hue2rgb(p2,q2,hn+1/3)*255),
+      Math.round(hue2rgb(p2,q2,hn    )*255),
+      Math.round(hue2rgb(p2,q2,hn-1/3)*255)
+    );
   };
-  
-  img.onerror = () => {
-    callback('rgba(255, 255, 255, 0.9)');
-  };
-  
+
+  img.onerror = () => callback(255,255,255);
   img.src = imageUrl;
 }
 
-function updateWaveColor(color) {
-  document.documentElement.style.setProperty('--wave-color', color);
+// Push accent RGB to CSS variable and toggle glow classes
+function applyAccent(r, g, b) {
+  const root = document.documentElement;
+  root.style.setProperty('--accent-rgb', `${r}, ${g}, ${b}`);
+
+  // Ghost carries the pill glow (outside overflow:hidden)
+  document.getElementById('pill-art-glow').classList.add('glowing');
+  // Panel art is inside a non-clipping context — direct glow is fine
+  document.getElementById('m-art').classList.add('glowing');
+}
+
+function clearAccent() {
+  document.documentElement.style.setProperty('--accent-rgb', '255, 255, 255');
+  document.getElementById('pill-art-glow').classList.remove('glowing');
+  document.getElementById('m-art').classList.remove('glowing');
 }
 
 // ── Art functions ─────────────────────────────────────────────────────────────
-function b64ToDataUrl(b64){
+function b64ToDataUrl(b64) {
   if(!b64) return null;
   try{
-    const h=atob(b64.slice(0,20));
-    const b=(i)=>h.charCodeAt(i);
-    if(b(0)===0x89&&b(1)===0x50) return 'data:image/png;base64,'+b64;
-    if(b(0)===0x52&&b(1)===0x49) return 'data:image/webp;base64,'+b64;
+    const h = atob(b64.slice(0,20));
+    const B = i => h.charCodeAt(i);
+    if(B(0)===0x89&&B(1)===0x50) return 'data:image/png;base64,'+b64;
+    if(B(0)===0x52&&B(1)===0x49) return 'data:image/webp;base64,'+b64;
   }catch(_){}
   return 'data:image/jpeg;base64,'+b64;
 }
 
 let currentThumbnailUrl = null;
 
-function updateThumbnail(b64){
+function updateThumbnail(b64) {
   if(!b64) return false;
   const url = b64ToDataUrl(b64);
   if(!url) return false;
@@ -729,94 +748,78 @@ function updateThumbnail(b64){
   currentThumbnailUrl = url;
 
   const pillArt = document.getElementById('pill-art');
-  pillArt.innerHTML = `<img src="${url}" alt="album art" style="width:100%; height:100%; object-fit:cover; display:block; border-radius:4px;">`;
+  pillArt.innerHTML = `<img src="${url}" alt="album art" style="width:100%;height:100%;object-fit:cover;display:block;border-radius:6px;">`;
   if(mediaPlaying) pillArt.classList.add('visible');
 
   const panelArt = document.getElementById('m-art');
   panelArt.innerHTML = `<img src="${url}" alt="album art" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:11px;display:block">`;
 
-  // Extract vibrant color for waves
-  extractVibrantColor(url, (accentColor) => {
-    updateWaveColor(accentColor);
-  });
+  // Extract vibrant color → set accent + glow
+  extractVibrantRGB(url, (r,g,b) => applyAccent(r,g,b));
 
   return true;
 }
 
 const PILL_PH_HTML = `<div class="pill-ph"><svg viewBox="0 0 24 24" width="8" height="8" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>`;
-const ART_PH = `<div class="art-ph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>`;
+const ART_PH       = `<div class="art-ph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>`;
 
-function clearThumbnails(){
-  const pillArt = document.getElementById('pill-art');
-  pillArt.innerHTML = PILL_PH_HTML;
-  pillArt.classList.remove('visible');
+function clearThumbnails() {
+  document.getElementById('pill-art').innerHTML = PILL_PH_HTML;
+  document.getElementById('pill-art').classList.remove('visible');
   document.getElementById('m-art').innerHTML = ART_PH;
   currentThumbnailUrl = null;
-  updateWaveColor('rgba(255, 255, 255, 0.8)');
+  clearAccent();
 }
 
 // ── Art fetch management ─────────────────────────────────────────────────────
-let lastArtKey = '';
-let artFetchTimer = null;
-let currentMediaMeta = null;
+let lastArtKey = '', artFetchTimer = null, currentMediaMeta = null;
 
-async function fetchAndApplyArt(artKey, mediaMeta){
+async function fetchAndApplyArt(artKey, mediaMeta) {
   if(!window.api?.getArt || !artKey) return;
-  try{
+  try {
     const b64 = await window.api.getArt(artKey, {
-      title: mediaMeta.title,
-      artist: mediaMeta.artist,
-      src: mediaMeta.src
+      title: mediaMeta.title, artist: mediaMeta.artist, src: mediaMeta.src
     });
-    if(lastArtKey === artKey && b64 && b64 !== ''){
-      updateThumbnail(b64);
-    }
-  } catch(e){
-    console.warn('[Renderer] Art fetch failed:', e);
-  }
+    if(lastArtKey === artKey && b64 && b64 !== '') updateThumbnail(b64);
+  } catch(e) { console.warn('[Renderer] Art fetch failed:', e); }
 }
 
-function showNoMedia(){
-  document.getElementById('no-media').style.display='flex';
-  document.getElementById('m-art').style.visibility='hidden';
-  document.getElementById('m-track').style.visibility='hidden';
-  document.querySelector('#panel > div:last-child').style.visibility='hidden';
+function showNoMedia() {
+  document.getElementById('no-media').style.display = 'flex';
+  document.getElementById('m-art').style.visibility = 'hidden';
+  document.getElementById('m-track').style.visibility = 'hidden';
+  document.querySelector('#panel > div:last-child').style.visibility = 'hidden';
   document.getElementById('pill-art').classList.remove('visible');
   document.getElementById('pill-wave').classList.remove('visible');
+  document.getElementById('pill-art-glow').style.display = 'none';
 }
-function showMedia(){
-  document.getElementById('no-media').style.display='none';
-  document.getElementById('m-art').style.visibility='visible';
-  document.getElementById('m-track').style.visibility='visible';
-  document.querySelector('#panel > div:last-child').style.visibility='visible';
+function showMedia() {
+  document.getElementById('no-media').style.display = 'none';
+  document.getElementById('m-art').style.visibility = 'visible';
+  document.getElementById('m-track').style.visibility = 'visible';
+  document.querySelector('#panel > div:last-child').style.visibility = 'visible';
 }
 
-async function poll(){
-  try{
+async function poll() {
+  try {
     if(!window.api?.getMedia) return;
     const m = await window.api.getMedia();
 
-    if(!m || !m.title){
-      hasMedia = false;
-      mediaPlaying = false;
-      setPlay(false);
-      clearThumbnails();
-      showNoMedia();
-      svgEl.classList.remove('active');
-      hitEl.classList.remove('active');
-      lastArtKey = '';
-      currentMediaMeta = null;
+    if(!m || !m.title) {
+      hasMedia = false; mediaPlaying = false;
+      setPlay(false); clearThumbnails(); showNoMedia();
+      svgEl.classList.remove('active'); hitEl.classList.remove('active');
+      lastArtKey = ''; currentMediaMeta = null;
       return;
     }
 
     hasMedia = true;
-    svgEl.classList.add('active');
-    hitEl.classList.add('active');
+    svgEl.classList.add('active'); hitEl.classList.add('active');
     showMedia();
 
-    document.getElementById('m-title').textContent = m.title || '—';
+    document.getElementById('m-title').textContent  = m.title  || '—';
     document.getElementById('m-artist').textContent = m.artist || m.album || '—';
-    const pct = m.dur > 0 ? Math.min(100, (m.pos/m.dur)*100).toFixed(1)+'%' : '0%';
+    const pct = m.dur > 0 ? Math.min(100,(m.pos/m.dur)*100).toFixed(1)+'%' : '0%';
     document.getElementById('m-prog-fill').style.width = pct;
     document.getElementById('m-pos').textContent = fmtTime(m.pos);
     document.getElementById('m-dur').textContent = fmtTime(m.dur);
@@ -826,48 +829,48 @@ async function poll(){
 
     const wEl = document.getElementById('pill-wave');
     wEl.classList.toggle('playing', mediaPlaying);
-    wEl.classList.toggle('paused', !mediaPlaying);
+    wEl.classList.toggle('paused',  !mediaPlaying);
 
     const pillArt = document.getElementById('pill-art');
-    if(mediaPlaying){
+    const pillGlow = document.getElementById('pill-art-glow');
+    if(mediaPlaying) {
       wEl.classList.add('visible');
-      if(currentThumbnailUrl){
+      if(currentThumbnailUrl) {
         pillArt.classList.add('visible');
+        pillGlow.style.display = '';
       } else {
         pillArt.classList.remove('visible');
+        pillGlow.style.display = 'none';
       }
     } else {
       pillArt.classList.remove('visible');
+      pillGlow.style.display = 'none';
       wEl.classList.remove('visible');
     }
 
-    const {cls, lbl} = srcInfo(m.src);
+    const {cls,lbl} = srcInfo(m.src);
     const badge = document.getElementById('m-badge');
     badge.textContent = lbl;
-    badge.className = cls;
-    badge.id = 'm-badge';
+    badge.className   = cls;
+    badge.id          = 'm-badge';
 
     const currentKey = m.artKey || `${m.title}||${m.artist}||${m.src}`;
 
-    if(currentKey !== lastArtKey){
+    if(currentKey !== lastArtKey) {
       lastArtKey = currentKey;
-      currentMediaMeta = { title: m.title, artist: m.artist, src: m.src };
+      currentMediaMeta = {title:m.title, artist:m.artist, src:m.src};
       clearThumbnails();
-
       if(artFetchTimer) clearTimeout(artFetchTimer);
-
-      if(m.art && m.art !== ''){
+      if(m.art && m.art !== '') {
         updateThumbnail(m.art);
       } else {
-        artFetchTimer = setTimeout(() => fetchAndApplyArt(currentKey, currentMediaMeta), 100);
+        artFetchTimer = setTimeout(()=>fetchAndApplyArt(currentKey,currentMediaMeta), 100);
       }
-    } else if(m.art && m.art !== '' && !currentThumbnailUrl){
+    } else if(m.art && m.art !== '' && !currentThumbnailUrl) {
       updateThumbnail(m.art);
     }
 
-  } catch(e){
-    console.warn('[Renderer] Poll error:', e);
-  }
+  } catch(e) { console.warn('[Renderer] Poll error:', e); }
 }
 
 showNoMedia();
