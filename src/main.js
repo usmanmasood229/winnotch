@@ -2,7 +2,7 @@
 
 const {
   app, BrowserWindow, ipcMain, screen,
-  Tray, Menu, nativeImage
+  Tray, Menu, nativeImage, powerMonitor
 } = require('electron');
 
 const path  = require('path');
@@ -72,6 +72,14 @@ function createWindow() {
     else clearInterval(aotInterval);
   }, 5000);
   win._aotInterval = aotInterval;
+
+  // ── Charging events → renderer ───────────────────────────────────────────
+  powerMonitor.on('on-ac', () => {
+    if (win && !win.isDestroyed()) win.webContents.send('charging-change', true);
+  });
+  powerMonitor.on('on-battery', () => {
+    if (win && !win.isDestroyed()) win.webContents.send('charging-change', false);
+  });
 }
 
 function refit() {
@@ -82,6 +90,18 @@ function refit() {
 
 ipcMain.on('mouse-enter', () => { if (win && !win.isDestroyed()) win.setIgnoreMouseEvents(false); });
 ipcMain.on('mouse-leave', () => { if (win && !win.isDestroyed()) win.setIgnoreMouseEvents(true, { forward: true }); });
+
+// ── Charging state query ──────────────────────────────────────────────────────
+ipcMain.handle('get-charging', () => {
+  // powerMonitor.getSystemIdleState is sync; charging comes from systemBatteryStatus
+  try {
+    // On Windows this returns 'charging' | 'discharging' | 'full' | 'unknown'
+    const status = powerMonitor.onBatteryPower;   // true = on battery (NOT charging)
+    return !status; // true = charging / on AC
+  } catch (_) {
+    return false;
+  }
+});
 
 // ── CPU / RAM ─────────────────────────────────────────────────────────────────
 function cpuSample() {
@@ -216,68 +236,35 @@ const CMD_ART  = encodePS(PS_ART);
 async function fetchImageAsBase64(url) {
   return new Promise((resolve) => {
     https.get(url, (response) => {
-      if (response.statusCode !== 200) {
-        resolve('');
-        return;
-      }
-      
+      if (response.statusCode !== 200) { resolve(''); return; }
       const chunks = [];
       response.on('data', chunk => chunks.push(chunk));
-      response.on('end', () => {
-        const buffer = Buffer.concat(chunks);
-        resolve(buffer.toString('base64'));
-      });
+      response.on('end', () => resolve(Buffer.concat(chunks).toString('base64')));
     }).on('error', () => resolve(''));
   });
 }
 
 async function getYouTubeThumbnail(title) {
   try {
-    // Clean the title for better search results
     let cleanTitle = title
-      .replace(/\(.*?\)/g, '')           // Remove (parentheses)
-      .replace(/\[.*?\]/g, '')           // Remove [brackets]
+      .replace(/\(.*?\)/g, '').replace(/\[.*?\]/g, '')
       .replace(/official\s+(music\s+)?video/gi, '')
-      .replace(/lyrics?/gi, '')
-      .replace(/HD|HQ|4K|1080p|720p/gi, '')
-      .replace(/[-|]/g, ' ')
-      .trim();
-    
-    // If title has " - " format (Artist - Song), use the song part
+      .replace(/lyrics?/gi, '').replace(/HD|HQ|4K|1080p|720p/gi, '')
+      .replace(/[-|]/g, ' ').trim();
     if (cleanTitle.includes(' - ')) {
       const parts = cleanTitle.split(' - ');
-      cleanTitle = parts[parts.length - 1]; // Take the song name
+      cleanTitle = parts[parts.length - 1];
     }
-    
-    console.log('[YouTube] Searching for:', cleanTitle);
-    
     const searchResult = await ytSearch(cleanTitle);
-    
-    if (!searchResult || !searchResult.videos || searchResult.videos.length === 0) {
-      console.log('[YouTube] No results found');
-      return '';
-    }
-    
-    // Get the first video result
+    if (!searchResult?.videos?.length) return '';
     const video = searchResult.videos[0];
     const thumbUrl = video.thumbnail || `https://img.youtube.com/vi/${video.videoId}/hqdefault.jpg`;
-    
-    console.log('[YouTube] Found:', video.title);
-    
-    // Fetch the thumbnail as base64
-    const b64 = await fetchImageAsBase64(thumbUrl);
-    return b64;
-    
-  } catch (error) {
-    console.error('[YouTube] Error:', error);
-    return '';
-  }
+    return await fetchImageAsBase64(thumbUrl);
+  } catch (_) { return ''; }
 }
 
 // ── Cache ─────────────────────────────────────────────────────────────────────
-let _cachedKey = '';
-let _cachedB64 = '';
-let _fetching = false;
+let _cachedKey = '', _cachedB64 = '', _fetching = false;
 
 // ── Control scripts ──────────────────────────────────────────────────────────
 function buildCtrlScript(cmd) {
@@ -297,20 +284,14 @@ function getCtrlCmd(cmd) {
 }
 
 // ── IPC Handlers ──────────────────────────────────────────────────────────────
-
-// Fast poll - returns metadata + cached art
 ipcMain.handle('get-media', async () => {
   if (process.platform !== 'win32') return null;
-  
   const raw = await runPS(CMD_META, 128 * 1024);
   if (!raw || raw === '{}') return null;
-  
   try {
     const d = JSON.parse(raw);
     if (!d?.title) return null;
-    
     const artKey = `${d.title}||${d.artist}||${d.album}||${d.src}`;
-    
     return {
       title:   String(d.title  || '').trim(),
       artist:  String(d.artist || '').trim(),
@@ -322,62 +303,31 @@ ipcMain.handle('get-media', async () => {
       artKey,
       art: artKey === _cachedKey ? _cachedB64 : '',
     };
-  } catch (_) { 
-    return null; 
-  }
+  } catch (_) { return null; }
 });
 
-// Art handler with YouTube fallback for browsers
 ipcMain.handle('get-art', async (_, artKey, meta) => {
   if (process.platform !== 'win32') return '';
   if (artKey === _cachedKey && _cachedB64) return _cachedB64;
   if (_fetching) return '';
-  
   _fetching = true;
-  
   try {
-    // Try SMTC thumbnail first
     let b64 = await runPS(CMD_ART, 16 * 1024 * 1024);
-    
-    // If SMTC failed AND this is from a browser (Chrome/Edge)
-    if ((!b64 || b64 === '') && meta && meta.src && meta.title) {
+    if ((!b64 || b64 === '') && meta?.src && meta?.title) {
       const src = meta.src.toLowerCase();
       const isBrowser = src.includes('chrome') || src.includes('edge') || src.includes('firefox') || src.includes('msedge');
-      
-      if (isBrowser) {
-        console.log('[Art] SMTC failed, trying YouTube for:', meta.title);
-        b64 = await getYouTubeThumbnail(meta.title);
-        
-        if (b64 && b64 !== '') {
-          console.log('[Art] ✓ YouTube thumbnail fetched successfully');
-        }
-      }
+      if (isBrowser) b64 = await getYouTubeThumbnail(meta.title);
     }
-    
-    // Cache the result
-    if (b64 && b64 !== '') {
-      _cachedKey = artKey;
-      _cachedB64 = b64;
-    }
-    
+    if (b64 && b64 !== '') { _cachedKey = artKey; _cachedB64 = b64; }
     return b64 || '';
-    
-  } catch (error) {
-    console.error('[Art] Error:', error);
-    return '';
-  } finally {
-    _fetching = false;
-  }
+  } catch (_) { return ''; } 
+  finally { _fetching = false; }
 });
 
-// Playback control
 ipcMain.handle('media-cmd', (_, cmd) => new Promise(resolve => {
   if (process.platform !== 'win32') return resolve(false);
-  
   exec(getCtrlCmd(cmd), {
-    timeout: 3000,
-    windowsHide: true,
-    maxBuffer: 64 * 1024,
+    timeout: 3000, windowsHide: true, maxBuffer: 64 * 1024,
     env: { ...process.env, POWERSHELL_TELEMETRY_OPTOUT: '1' },
   }, (err) => resolve(!err));
 }));
@@ -392,22 +342,17 @@ function createTray() {
     { label: 'Show', click: () => win?.show() },
     { label: 'Hide', click: () => win?.hide() },
     { type: 'separator' },
-    { label: 'Quit', click: () => { 
-      if (tray) tray.destroy();
-      app.exit(0); 
-    }},
+    { label: 'Quit', click: () => { if (tray) tray.destroy(); app.exit(0); }},
   ]));
   tray.on('double-click', () => win?.isVisible() ? win.hide() : win?.show());
 }
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
-  // Clean up stale lock files
   const ud = app.getPath('userData');
   for (const f of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
     try { fs.unlinkSync(path.join(ud, f)); } catch (_) {}
   }
-  
   if (app.dock) app.dock.hide();
   createWindow();
   createTray();

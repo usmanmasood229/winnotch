@@ -34,16 +34,14 @@
   --accent-rgb: 255, 255, 255;
   --wave-color: rgba(var(--accent-rgb), 0.92);
 
-  /* Glow tokens — pure backlight, no border ring */
+  /* Glow tokens — very tight, barely bleeds past thumbnail */
   --glow-pill:
-    0 0 10px 4px  rgba(var(--accent-rgb), 0.45),
-    0 0 22px 8px  rgba(var(--accent-rgb), 0.22),
-    0 0 40px 14px rgba(var(--accent-rgb), 0.10);
+    0 0 3px 1px rgba(var(--accent-rgb), 0.40),
+    0 0 6px 2px rgba(var(--accent-rgb), 0.10);
 
   --glow-panel:
-    0 0 12px 5px  rgba(var(--accent-rgb), 0.38),
-    0 0 28px 10px rgba(var(--accent-rgb), 0.18),
-    0 0 50px 16px rgba(var(--accent-rgb), 0.08);
+    0 0 4px 2px rgba(var(--accent-rgb), 0.35),
+    0 0 8px 3px rgba(var(--accent-rgb), 0.10);
 
   /* Wave bar glow */
   --wave-glow:
@@ -411,12 +409,69 @@ html,body {
   backdrop-filter:blur(12px);
   border-radius:18px;
 }
+/* No media */
+#no-media {
+  display:none;
+  align-items:center;
+  justify-content:center;
+  position:absolute;
+  inset:0;
+  gap:8px;
+  background:rgba(0,0,0,.4);
+  backdrop-filter:blur(12px);
+  border-radius:18px;
+}
 #no-media svg { color:var(--w25); }
 #no-media span {
   font-size:10px;
   font-weight:600;
   color:var(--w40);
   letter-spacing:.06em;
+}
+
+/* Charging droplet */
+#charge-drop {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  /* soft green ambient glow — blurry, not sharp */
+  box-shadow:
+    0 0 8px  4px  rgba(52,217,98,0.0),
+    0 0 20px 8px  rgba(52,217,98,0.0),
+    0 0 40px 14px rgba(52,217,98,0.0);
+  will-change: transform, opacity, box-shadow;
+}
+#charge-drop svg { width: 14px; height: 14px; flex-shrink: 0; }
+#charge-drop.glowing {
+  box-shadow:
+    0 0 8px  4px  rgba(52,217,98,0.60),
+    0 0 20px 8px  rgba(52,217,98,0.25),
+    0 0 40px 14px rgba(52,217,98,0.10);
+}
+@keyframes dropGlow {
+  0%,100% {
+    box-shadow:
+      0 0 8px  4px  rgba(52,217,98,0.50),
+      0 0 20px 8px  rgba(52,217,98,0.20),
+      0 0 40px 14px rgba(52,217,98,0.08);
+  }
+  50% {
+    box-shadow:
+      0 0 10px 5px  rgba(52,217,98,0.75),
+      0 0 26px 10px rgba(52,217,98,0.32),
+      0 0 50px 18px rgba(52,217,98,0.14);
+  }
+}
+#charge-drop.pulsing {
+  animation: dropGlow 1.6s ease-in-out infinite;
 }
 </style>
 </head>
@@ -876,6 +931,88 @@ async function poll() {
 showNoMedia();
 poll();
 setInterval(poll, 2000);
+
+// ── ⚡ Charging droplet ────────────────────────────────────────────────────────
+(function() {
+  const drop = document.createElement('div');
+  drop.id = 'charge-drop';
+
+  // Better looking modern lightning icon
+  drop.innerHTML = `<svg viewBox="0 0 24 24" width="26" height="42" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M14.2 1.5L5.8 12.2H11L9.8 22.5L18.8 10.8H13.6L14.2 1.5Z"
+      fill="#34d962"/>
+  </svg>`;
+
+  document.body.appendChild(drop);
+
+  let dropAnimating = false;
+
+  function notchBottomCenter() {
+    const notchH = cv('--notch-h') || 23;
+    return {
+      x: window.innerWidth / 2,
+      y: notchH,
+    };
+  }
+
+  function playDroplet() {
+    if (dropAnimating) return;
+    dropAnimating = true;
+
+    const { x, y } = notchBottomCenter();
+    const r = 17;
+
+    drop.style.left = (x - r) + 'px';
+    drop.style.top  = (y - r) + 'px';
+
+    const DROP_DIST = 22;
+    const HANG_MS   = 2000;
+
+    drop.animate([
+      { opacity: 0, transform: 'translateY(-8px) scaleX(1.25) scaleY(0.3)', offset: 0 },
+      { opacity: 1, transform: 'translateY(6px) scaleX(0.88) scaleY(1.2)', offset: 0.45 },
+      { opacity: 1, transform: `translateY(${DROP_DIST + 3}px) scaleX(1.06) scaleY(0.94)`, offset: 0.7 },
+      { opacity: 1, transform: `translateY(${DROP_DIST}px) scaleX(1) scaleY(1)`, offset: 1 }
+    ], {
+      duration: 480,
+      easing: 'cubic-bezier(.22,1,.36,1)',
+      fill: 'forwards'
+    }).onfinish = () => {
+
+      // Hover only (no glow)
+      setTimeout(() => {
+
+        drop.animate([
+          { opacity: 1, transform: `translateY(${DROP_DIST}px) scaleX(1) scaleY(1)`, offset: 0 },
+          { opacity: 1, transform: 'translateY(8px) scaleX(0.82) scaleY(1.25)', offset: 0.45 },
+          { opacity: 0.6, transform: 'translateY(1px) scaleX(1.4) scaleY(0.25)', offset: 0.8 },
+          { opacity: 0, transform: 'translateY(0px) scaleX(1.4) scaleY(0)', offset: 1 }
+        ], {
+          duration: 380,
+          easing: 'cubic-bezier(.4,0,.6,1)',
+          fill: 'forwards'
+        }).onfinish = () => {
+          drop.style.opacity = '0';
+          dropAnimating = false;
+        };
+
+      }, HANG_MS);
+    };
+  }
+
+  async function initCharging() {
+    try {
+      const isCharging = await window.api?.getCharging?.();
+      console.log('[Charging] initial:', isCharging ? 'AC' : 'battery');
+    } catch (_) {}
+  }
+
+  window.api?.onCharging?.((isCharging) => {
+    if (isCharging) setTimeout(playDroplet, 250);
+  });
+
+  initCharging();
+})();
 </script>
 </body>
 </html>
