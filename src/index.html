@@ -11,7 +11,7 @@
 
 :root {
   --notch-w:   200px;
-  --notch-h:   33px;
+  --notch-h:   29px;
   --notch-ear: 9px;
   --notch-rb:  10px;
   --panel-w:   420px;
@@ -955,61 +955,78 @@ setInterval(poll, 2000);
     };
   }
 
-  function playDroplet() {
-    if (dropAnimating) return;
-    dropAnimating = true;
-
-    const { x, y } = notchBottomCenter();
-    const r = 17;
-
-    drop.style.left = (x - r) + 'px';
-    drop.style.top  = (y - r) + 'px';
-
-    const DROP_DIST = 22;
-    const HANG_MS   = 2000;
-
-    drop.animate([
-      { opacity: 0, transform: 'translateY(-8px) scaleX(1.25) scaleY(0.3)', offset: 0 },
-      { opacity: 1, transform: 'translateY(6px) scaleX(0.88) scaleY(1.2)', offset: 0.45 },
-      { opacity: 1, transform: `translateY(${DROP_DIST + 3}px) scaleX(1.06) scaleY(0.94)`, offset: 0.7 },
-      { opacity: 1, transform: `translateY(${DROP_DIST}px) scaleX(1) scaleY(1)`, offset: 1 }
-    ], {
-      duration: 480,
-      easing: 'cubic-bezier(.22,1,.36,1)',
-      fill: 'forwards'
-    }).onfinish = () => {
-
-      // Hover only (no glow)
-      setTimeout(() => {
-
-        drop.animate([
-          { opacity: 1, transform: `translateY(${DROP_DIST}px) scaleX(1) scaleY(1)`, offset: 0 },
-          { opacity: 1, transform: 'translateY(8px) scaleX(0.82) scaleY(1.25)', offset: 0.45 },
-          { opacity: 0.6, transform: 'translateY(1px) scaleX(1.4) scaleY(0.25)', offset: 0.8 },
-          { opacity: 0, transform: 'translateY(0px) scaleX(1.4) scaleY(0)', offset: 1 }
-        ], {
-          duration: 380,
-          easing: 'cubic-bezier(.4,0,.6,1)',
-          fill: 'forwards'
-        }).onfinish = () => {
-          drop.style.opacity = '0';
-          dropAnimating = false;
-        };
-
-      }, HANG_MS);
-    };
-  }
+  (function() {
+  window.api?.onCharging?.((isCharging) => {
+    if (isCharging) setTimeout(playChargingNotch, 250);
+  });
 
   async function initCharging() {
-    try {
-      const isCharging = await window.api?.getCharging?.();
-      console.log('[Charging] initial:', isCharging ? 'AC' : 'battery');
-    } catch (_) {}
+    try { await window.api?.getCharging?.(); } catch (_) {}
   }
+  initCharging();
 
-  window.api?.onCharging?.((isCharging) => {
-    if (isCharging) setTimeout(playDroplet, 250);
-  });
+  function playChargingNotch() {
+    if (isOpen) return;
+
+    // Animate notch open
+    svgEl.classList.add('active');
+animateTo(280, CH() + 2, 14, 420, easeOpen);
+    // Inject charging UI into panel temporarily
+    const panel = document.getElementById('panel');
+    const originalHTML = panel.innerHTML;
+    panel.innerHTML = `
+  <div style="display:flex; align-items:center; justify-content:space-between; 
+    width:100%; padding:0 12px; box-sizing:border-box; height:100%;">
+    
+    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" style="filter: drop-shadow(0 0 2px rgba(52,217,98,0.4))">
+      <path d="M13 2L4 14H11L10 22L19 10H12L13 2Z" fill="#34d962"/>
+    </svg>
+
+    <span style="font-size:11px; font-weight:500; color:#FFFFFF; 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica;
+      letter-spacing:-0.01em; opacity:0.9">Charging</span>
+
+    <div style="display:flex; align-items:center; position:relative">
+      <div style="width:25px; height:12px; border-radius:3.5px; 
+        border: 1px solid rgba(255,255,255,0.2); padding:1.5px; 
+        display:flex; align-items:center; background: rgba(0,0,0,0.1)">
+        
+        <div style="width:100%; height:100%; background:#34d962; 
+          border-radius:1.5px; box-shadow: 0 0 5px rgba(52,217,98,0.5)"></div>
+      </div>
+      
+      <div style="width:1.5px; height:4px; background:rgba(255,255,255,0.25); 
+        border-radius:0 1px 1px 0; margin-left:1px"></div>
+    </div>
+  </div>
+`;
+
+    contEl.classList.add('open');
+
+    // Animate the green bar filling up
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const fill = document.getElementById('charge-bar-fill');
+        if (fill) fill.style.width = '100%';
+      });
+    });
+
+    // Auto close after 3 seconds
+    setTimeout(() => {
+      contEl.classList.remove('open');
+      animateTo(CW(), CH(), CR(), 200, easeClose);
+      svgEl.classList.remove('active');
+
+      setTimeout(() => {
+        panel.innerHTML = originalHTML;
+        // Re-bind control buttons after restoring HTML
+        document.getElementById('btn-play').addEventListener('click', e => { e.stopPropagation(); sendCmd(mediaPlaying ? 'pause' : 'play', e.currentTarget); });
+        document.getElementById('btn-prev').addEventListener('click', e => { e.stopPropagation(); sendCmd('prev', e.currentTarget); });
+        document.getElementById('btn-next').addEventListener('click', e => { e.stopPropagation(); sendCmd('next', e.currentTarget); });
+      }, 250);
+    }, 3000);
+  }
+})();
 
   initCharging();
 })();
