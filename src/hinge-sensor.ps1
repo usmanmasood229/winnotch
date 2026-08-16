@@ -150,13 +150,17 @@ try {
 }
 
 # Emit only on change so the parent process isn't woken for identical values.
+# Fractional degrees are kept (when the sensor has them) — truncating to whole
+# degrees turned smooth lid travel into a staircase. Invariant culture so a
+# locale with a decimal comma can't break parsing on the other side.
+$inv  = [Globalization.CultureInfo]::InvariantCulture
 $last = [double]::NaN
 while ($true) {
-    $a = [HingeReader]::Read()
+    $a = [math]::Round([HingeReader]::Read(), 1)
     if ($a -ge 0 -and $a -ne $last) {
         $last = $a
-        [Console]::Out.WriteLine([int]$a)
+        [Console]::Out.WriteLine($a.ToString($inv))
         [Console]::Out.Flush()
     }
-    Start-Sleep -Milliseconds 50
+    Start-Sleep -Milliseconds 33
 }

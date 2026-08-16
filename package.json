@@ -5,6 +5,7 @@
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
+    "test": "node --test test/lid-motion.test.js",
     "build": "electron-builder --win --x64"
   },
   "devDependencies": {

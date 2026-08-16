@@ -182,25 +182,15 @@ function refit() {
   if (blurWin && !blurWin.isDestroyed()) blurWin.setBounds(bounds, false);
 }
 
-// ── Hinge angle → full-screen blur (MacDuo-style) ─────────────────────────────
+// ── Hinge angle → full-screen blur ────────────────────────────────────────────
 // Angle comes from a PowerShell sidecar (see hinge-sensor.ps1) because the
 // hinge is only reachable through the Win32 COM Sensor API, which Node can't
 // call directly.
-const HINGE_CLEAR  = 120; // at/above this angle the desktop is fully clear.
-                          // Deliberately above a normal working angle so the
-                          // curtain tracks the lid across its whole travel — a
-                          // parked lid is handled by the settle-fade below, not
-                          // by keeping this threshold low.
-const HINGE_CLOSED = 5;   // at/below this angle the effect is at full strength
-
+//
+// The main process only decides when a gesture starts and grabs the desktop for
+// it. How the blur looks and moves lives in lid-blur.html, which runs per frame:
+// IPC and timers here can't pace an animation smoothly.
 let blurWin = null, blurReady = false, hingeProc = null;
-
-function hingeProgress(angle) {
-  if (angle > 180) return 0;              // folded back past flat into tablet mode
-  if (angle >= HINGE_CLEAR) return 0;
-  if (angle <= HINGE_CLOSED) return 1;
-  return (HINGE_CLEAR - angle) / (HINGE_CLEAR - HINGE_CLOSED);
-}
 
 function createBlurOverlay() {
   const { bounds } = getPrimary();
@@ -230,21 +220,13 @@ function createBlurOverlay() {
 
 // A transparent window can't blur the real desktop behind it (backdrop-filter
 // only samples content inside its own page), so grab the desktop and blur that
-// image instead. Captured at half resolution — it's about to be blurred by tens
-// of pixels, so the lost detail is invisible and the capture is much faster.
+// image instead. Half resolution: it's about to be blurred, and the grab is far
+// quicker. Only ever called while the overlay is hidden — capturing with it on
+// screen would photograph our own blur. Resolves to a data URL, or null.
 let capturing = false;
 
-ipcMain.on('hinge-idle', () => {
-  if (blurWin && !blurWin.isDestroyed() && blurWin.isVisible()) blurWin.hide();
-});
-
-// Captured at a third of screen resolution: it's about to be blurred by tens of
-// pixels, so the lost detail is invisible and the grab is far quicker.
-//
-// Only ever called while the overlay is invisible — capturing with the curtain
-// on screen would photograph our own blur and feed it back on itself.
 async function captureDesktop() {
-  if (capturing) return;
+  if (capturing) return null;
   capturing = true;
   try {
     const display = getPrimary();
@@ -256,23 +238,14 @@ async function captureDesktop() {
       },
     });
     const src = sources.find(s => s.display_id === String(display.id)) || sources[0];
-    if (src && blurWin && !blurWin.isDestroyed() && blurReady) {
-      blurWin.webContents.send('hinge-shot', src.thumbnail.toDataURL());
-    }
+    return src ? src.thumbnail.toDataURL() : null;
   } catch (e) {
     console.log('[WinNotch] desktop capture failed:', e.message);
+    return null;
   } finally {
     capturing = false;
   }
 }
-
-// A lid parked at some angle shouldn't keep the curtain pinned there, so once
-// the hinge holds still the blur fades off and gives the screen back. Moving
-// again brings it straight back.
-const SETTLE_MS = 700;
-const MOVE_EPS  = 4;   // degrees — the sensor jitters a couple of degrees at
-                       // rest, and reacting to that jitter makes the curtain
-                       // flash in and out
 
 // The hinge angle is derived from the difference between two accelerometers,
 // one in the lid and one in the base. Moving the whole laptop hits both with
@@ -285,13 +258,12 @@ const ARM_DELTA    = 8;   // degrees away from rest before the effect arms
 const CONSISTENT_N = 3;   // consecutive samples that must agree on direction
 const SMOOTH_N     = 3;   // samples averaged to take the edge off the noise
 
-// Starts settled: nothing has been captured yet, so the first real movement is
+// Starts disarmed: nothing has been captured yet, so the first real movement is
 // what arms the effect.
-let settleTimer = null, settled = true, lastMoveAngle = null;
-let angleHist = [], restAngle = null;
+let armed = false, angleHist = [], restAngle = null, lastSmoothed = null, lastRaw = null;
 
-// Mean of the last few samples — the raw feed is whole degrees at ~10Hz and
-// rattles by a degree or two even at rest.
+// Mean of the last few samples, used only to decide when a gesture starts —
+// the raw feed is coarse and rattles by a degree or two even at rest.
 function smoothAngle(raw) {
   angleHist.push(raw);
   if (angleHist.length > CONSISTENT_N + 2) angleHist.shift();
@@ -317,67 +289,53 @@ function movingConsistently() {
   return dir !== 0;
 }
 
-function onSettle() {
-  settled = true;
-  lastMoveAngle = null;
-  if (angleHist.length) restAngle = angleHist[angleHist.length - 1];
-  if (blurWin && !blurWin.isDestroyed()) blurWin.webContents.send('hinge-settled', true);
+// The renderer says when the blur has fully eased away; only then is the window
+// pulled and the next movement allowed to start a fresh gesture. The rest angle
+// is wherever the lid came to a stop.
+function disarm() {
+  armed = false;
+  if (lastSmoothed !== null) restAngle = lastSmoothed;
+  if (blurWin && !blurWin.isDestroyed() && blurWin.isVisible()) blurWin.hide();
 }
 
-// Each gesture begins with a fresh snapshot, and the curtain is only revealed
-// once that snapshot has actually landed — otherwise the first frames would
-// show whatever was on screen the last time round. Re-capturing mid-gesture is
-// deliberately avoided: it would swap the image under the animation (a visible
-// flicker) and would photograph our own blur.
-async function armCurtain() {
-  await captureDesktop();
-  if (blurWin && !blurWin.isDestroyed()) blurWin.webContents.send('hinge-settled', false);
-}
+ipcMain.on('hinge-idle', disarm);
 
-function noteHingeMotion(angle) {
-  if (settled) {
-    if (restAngle === null) restAngle = angle;
-
-    if (Math.abs(angle - restAngle) < ARM_DELTA) {
-      // Still around where the lid was parked. Drift the resting point along
-      // slowly so gradually repositioning the screen doesn't bank up into a
-      // false trigger later.
-      restAngle += (angle - restAngle) * 0.1;
-      return;
-    }
-    if (!movingConsistently() || angle > 180) return;  // a jolt, or folded into tablet mode
-
-    settled = false;
-    lastMoveAngle = angle;
-    armCurtain();
-    clearTimeout(settleTimer);
-    settleTimer = setTimeout(onSettle, SETTLE_MS);
-    return;
-  }
-
-  // Already armed — keep it alive for as long as the lid keeps moving.
-  if (lastMoveAngle === null || Math.abs(angle - lastMoveAngle) >= MOVE_EPS) {
-    lastMoveAngle = angle;
-    clearTimeout(settleTimer);
-    settleTimer = setTimeout(onSettle, SETTLE_MS);
-  }
+// Each gesture begins with a fresh snapshot. Re-capturing mid-gesture is
+// deliberately avoided: it would swap the image under the animation and would
+// photograph our own blur. The anchor is the angle the lid rested at, so the
+// blur measures how far it has travelled from there.
+async function arm(anchor) {
+  armed = true;
+  const dataUrl = await captureDesktop();
+  if (!armed) return;                                  // sensor stopped meanwhile
+  if (!dataUrl || !blurWin || blurWin.isDestroyed()) { disarm(); return; }
+  blurWin.webContents.send('hinge-shot', { dataUrl, anchor, angle: lastRaw });
+  blurWin.showInactive();
 }
 
 function applyHinge(raw) {
   if (!blurWin || blurWin.isDestroyed() || !blurReady) return;
-
-  // Everything downstream runs off the smoothed angle, so sensor rattle doesn't
-  // show up as wobble in the blur.
+  lastRaw = raw;
   const angle = smoothAngle(raw);
-  noteHingeMotion(angle);
+  lastSmoothed = angle;
 
-  const p = hingeProgress(angle);
+  // Mid-gesture the renderer gets every raw sample: its own per-frame smoothing
+  // does a better job than averaging here, which only adds lag.
+  if (armed) {
+    blurWin.webContents.send('hinge-angle', raw);
+    return;
+  }
 
-  // The window is only ever hidden once the renderer reports it has finished
-  // easing the curtain away (see the 'hinge-idle' handler) — hiding it here on
-  // a timer would cut the fade off mid-flight.
-  if (p > 0 && !blurWin.isVisible()) blurWin.showInactive();
-  blurWin.webContents.send('hinge-progress', p);
+  if (restAngle === null) restAngle = angle;
+  if (Math.abs(angle - restAngle) < ARM_DELTA) {
+    // Still around where the lid was parked. Drift the resting point along
+    // slowly so gradually repositioning the screen doesn't bank up into a
+    // false trigger later.
+    restAngle += (angle - restAngle) * 0.1;
+    return;
+  }
+  if (!movingConsistently() || angle > 180) return;  // a jolt, or folded into tablet mode
+  arm(restAngle);
 }
 
 function startHingeSensor() {
@@ -396,8 +354,8 @@ function startHingeSensor() {
     const lines = buf.split('\n');
     buf = lines.pop();                    // keep the partial trailing line
     for (const line of lines) {
-      const angle = parseInt(line, 10);
-      if (!Number.isNaN(angle)) applyHinge(angle);
+      const angle = parseFloat(line);
+      if (Number.isFinite(angle)) applyHinge(angle);
     }
   });
   // No hinge sensor (or any other failure) just means no blur — the rest of
@@ -408,7 +366,7 @@ function startHingeSensor() {
 }
 
 function stopHingeSensor() {
-  clearTimeout(settleTimer);
+  disarm();
   if (hingeProc) { hingeProc.kill(); hingeProc = null; }
 }
 

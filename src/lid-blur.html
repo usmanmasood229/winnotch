@@ -4,221 +4,354 @@
 <meta charset="UTF-8">
 <style>
 html,body {
-  margin:0; padding:0; width:100vw; height:100vh;
+  margin:0; padding:0; width:100%; height:100%;
   background:transparent; overflow:hidden; pointer-events:none;
 }
-/* A snapshot of the desktop, blurred in place. backdrop-filter can't touch the
-   real desktop from a transparent window, but an <img> inside the page blurs
-   normally — so the desktop gets copied in and blurred here.
-
-   Drawn at half size and scaled back up. A big CSS blur costs roughly the
-   square of its radius times the pixel count, and a full-screen 55px blur every
-   frame was heavy enough to drop frames. Blurring a half-size layer costs a
-   quarter of that, and since the capture is already half-resolution this maps
-   about 1:1 — no visible loss.
-
-   No CSS transitions on purpose — every frame comes from the rAF loop below,
-   so transitions would only fight it. */
-#shot {
-  position:fixed; left:-3%; top:-3%;
-  width:53%; height:53%;
-  transform:scale(2);          /* must match SCALE below */
-  transform-origin:0 0;
-  object-fit:fill;
-  will-change:filter, opacity;
-}
-/* Black closing in around the edges — the middle of the screen stays readable,
-   it's the border that goes dark.
-
-   The gradient is fixed and only its opacity animates. Opacity is a
-   compositor-only property, so it can't trigger a repaint and stays smooth;
-   rebuilding the gradient string each frame repainted the whole screen. */
-#black {
-  position:fixed; inset:0;
-  pointer-events:none;
-  opacity:0;
-  background:radial-gradient(ellipse 92% 92% at 50% 60%,
-    rgba(0,0,0,0)    58%,
-    rgba(0,0,0,0.14) 76%,
-    rgba(0,0,0,0.48) 90%,
-    rgba(0,0,0,0.88) 100%);
-  will-change:opacity;
-}
-/* The last stretch before the lid meets flush: the whole panel goes to black,
-   so it reads as the backlight dying rather than the picture being cut off. */
-#blackout {
-  position:fixed; inset:0;
-  pointer-events:none;
-  opacity:0;
-  background:#000;
-  will-change:opacity;
-}
+canvas { position:fixed; inset:0; width:100%; height:100%; }
 </style>
 </head>
 <body>
-<img id="shot" alt="">
-<div id="black"></div>
-<div id="blackout"></div>
+<canvas id="gl"></canvas>
+<script src="lid-motion.js"></script>
 <script>
-const shot     = document.getElementById('shot');
-const black    = document.getElementById('black');
-const blackout = document.getElementById('blackout');
+'use strict';
+// A transparent window can't blur the real desktop behind it, so each gesture
+// gets a snapshot (see main.js) and this page draws a blurred copy over the top.
+//
+// The snapshot is blurred ONCE per gesture into a few levels. Every frame then
+// only blends between two neighbouring levels per pixel, so animating the blur
+// costs a handful of texture reads — re-running a blur each frame is what made
+// the old CSS version stutter. Levels clamp at the image edge, so corners get
+// the same blur as the middle instead of fading out to the sharp desktop.
+//
+// The lid is treated as a window onto a desktop that stays where it was when
+// the gesture began: each screen pixel is traced from the viewer's eye through
+// its real position on the tilted lid onto that fixed plane. As the lid turns
+// the picture holds its ground, and past its edges there's only dark.
+//
+// Blur follows the same tilt. It's even left to right, starts just above the
+// hinge and is strongest at the top edge, the part of the lid that has moved
+// the most.
 
-const MIN_BLUR = 28;   // px the moment the curtain appears
-const MAX_BLUR = 85;   // px once fully closed
-const SCALE    = 2;    // must match the CSS transform above
-const FEATHER  = 30;   // curtain edge softness, in % of screen height
-const SPAN     = 100 + FEATHER;
+const LEVELS    = [0, 0.002, 0.006, 0.016, 0.040]; // Gaussian sigma, fraction of height
+const BLUR_GAIN = 0.065;  // top-edge sigma, fraction of height, at a 90° tilt
+const BLUR_FOOT = 0.08;   // height above the hinge where blur begins
+const EYE_Y     = 0.65;   // viewer's eye above the hinge, in screen heights
+const EYE_Z     = 1.6;    // viewer's distance from the screen, in screen heights
+const PERSPECTIVE = true; // true narrows the top as the lid tilts (a keystone);
+                           // false keeps the picture's width and only holds height
+const FADE_TILT = 0.035;  // radians (~2°): below this the overlay fades out, so a
+                          // nearly-flat half-res snapshot never sits on top of
+                          // the real desktop as a visible flash
 
-// Coverage and radius are both pushed hard up front. Ramping them linearly
-// meant the first half of the lid's travel only blurred a thin strip at the
-// top, so the effect was barely there for most of the movement you actually
-// watch.
-const VIS_EASE = 0.55;
+const VERT = `#version 300 es
+const vec2 CORNERS[3] = vec2[3](vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
+void main() { gl_Position = vec4(CORNERS[gl_VertexID], 0.0, 1.0); }`;
 
-// Thresholds are written in degrees because that's how the lid is actually
-// thought about. Converting needs the same mapping main.js uses — keep these
-// two in step with HINGE_CLEAR / HINGE_CLOSED over there.
-const HINGE_CLEAR  = 120;
-const HINGE_CLOSED = 5;
-const atDeg = d => (HINGE_CLEAR - d) / (HINGE_CLEAR - HINGE_CLOSED);
+// One axis of a separable Gaussian, resampling the source onto the destination.
+const BLUR_FRAG = `#version 300 es
+precision highp float;
+uniform sampler2D uSrc;
+uniform vec2  uDestSize;
+uniform vec2  uAxis;
+uniform float uSigma;          // destination texels
+out vec4 fragColor;
+void main() {
+  vec2 uv    = gl_FragCoord.xy / uDestSize;
+  vec2 texel = uAxis / uDestSize;
+  float reach = min(ceil(uSigma * 3.0), 24.0);
+  float k = 1.0 / (2.0 * uSigma * uSigma);
+  vec4 sum = vec4(0.0);
+  float total = 0.0;
+  for (int i = -24; i <= 24; i++) {
+    float d = float(i);
+    if (abs(d) > reach) continue;
+    float w = exp(-d * d * k);
+    sum += texture(uSrc, uv + texel * d) * w;
+    total += w;
+  }
+  fragColor = sum / total;
+}`;
 
-const BLACK_START    = atDeg(60);  // edges start darkening as the lid passes 60°
-const BLACKOUT_START = atDeg(35);  // panel goes fully black on the way to shut
+const COMPOSITE_FRAG = `#version 300 es
+precision highp float;
+uniform sampler2D uL0, uL1, uL2, uL3, uL4;
+uniform float uS1, uS2, uS3, uS4;
+uniform vec2  uRes;
+uniform float uTilt, uGain, uFoot, uEyeY, uEyeZ, uFade, uPerspective;
+out vec4 fragColor;
 
-// Spring instead of a plain ease: it accelerates and settles the way something
-// physical does, which is what reads as "liquid". Critically damped, so it
-// glides into place without wobbling past it.
-const STIFFNESS = 190;
-const DAMPING   = 2 * Math.sqrt(190);   // critical damping
-const TAU_FADE  = 320;                  // settle fade stays a simple ease
+const vec3 VOID = vec3(0.02, 0.035, 0.05);
 
-let target = 0, cur = 0, vel = 0;   // curtain coverage, 0..1
-let fadeTo = 0, fade = 0;           // 1 = shown, 0 = faded off after settling
-let hasShot = false, isSettled = true, raf = null, lastTs = 0;
+vec3 tap(sampler2D t, vec2 uv) { return texture(t, uv).rgb; }
 
-// Nothing is revealed until there's a decoded image to reveal. Fading in before
-// the snapshot had decoded meant the picture snapped into view the instant it
-// was ready, instead of easing in.
-function updateFade() {
-  fadeTo = (!isSettled && hasShot) ? 1 : 0;
+void main() {
+  float aspect = uRes.x / uRes.y;
+  vec2 screen = gl_FragCoord.xy / uRes;          // y = 0 at the bottom, by the hinge
+  float h = screen.y;
+  float a = clamp(uTilt, -0.65, 1.25);
+
+  // Where this pixel physically is on the tilted lid (screen heights, hinge at
+  // the origin, z toward the viewer), then where the eye's line through it
+  // lands on the fixed desktop plane z = 0.
+  vec3 lid  = vec3((screen.x - 0.5) * aspect, h * cos(a), h * sin(a));
+  vec3 eye  = vec3(0.0, uEyeY, uEyeZ);
+  float t   = uPerspective > 0.5 ? uEyeZ / max(0.25, uEyeZ - lid.z) : 1.0;
+  vec3 hit  = eye + t * (lid - eye);
+  vec2 uv   = vec2(hit.x / aspect + 0.5, 1.0 - hit.y);   // textures hold the top row first
+
+  float sigma = uGain * smoothstep(uFoot, 1.0, h) * abs(sin(a));
+
+  vec3 c;
+  if      (sigma < uS1) c = mix(tap(uL0, uv), tap(uL1, uv), sigma / uS1);
+  else if (sigma < uS2) c = mix(tap(uL1, uv), tap(uL2, uv), (sigma - uS1) / (uS2 - uS1));
+  else if (sigma < uS3) c = mix(tap(uL2, uv), tap(uL3, uv), (sigma - uS2) / (uS3 - uS2));
+  else                  c = mix(tap(uL3, uv), tap(uL4, uv), clamp((sigma - uS3) / (uS4 - uS3), 0.0, 1.0));
+
+  // Past the picture's edge, fade to dark over the same blur width instead of
+  // a hard cut; the levels clamp at the edge, so the colour runs out softly.
+  vec2 feather = max(vec2(3.0 * min(sigma, uS4)) * vec2(1.0 / aspect, 1.0), fwidth(uv));
+  vec2 inside  = smoothstep(-feather, feather, uv) * (1.0 - smoothstep(1.0 - feather, 1.0 + feather, uv));
+  c = mix(VOID, c, inside.x * inside.y);
+
+  // Wide soft gradients band on 8-bit panels; a little noise hides the steps.
+  float n = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+  c = clamp(c + (n - 0.5) / 255.0, 0.0, 1.0);
+
+  float alpha = smoothstep(0.0, uFade, abs(uTilt));
+  fragColor = vec4(c * alpha, alpha);
+}`;
+
+const canvas = document.getElementById('gl');
+const motion = LidMotion.create();
+
+let gl = null, blurProg = null, compProg = null, halfFloat = false;
+let srcTex = null, levelTex = [], levelTargets = [];
+let running = false, lastTs = 0, shotToken = 0;
+
+function compile(type, source) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, source);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+  return s;
 }
 
-// Writing a style property costs a repaint even when the value is unchanged, so
-// each is only touched when it actually moves.
-let lastCur = -1, lastFade = -1, lastBlack = -1, lastBlackout = -1;
+function makeProgram(fragSource) {
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(gl.VERTEX_SHADER, VERT));
+  gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fragSource));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const u = {};
+  const count = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < count; i++) {
+    const name = gl.getActiveUniform(p, i).name;
+    u[name] = gl.getUniformLocation(p, name);
+  }
+  return { p, u };
+}
 
-function apply() {
-  // Changing blur or mask repaints the layer, so skip sub-perceptual steps —
-  // fewer repaints per second leaves more headroom to hit frame deadlines.
-  if (Math.abs(cur - lastCur) > 0.004) {
-    lastCur = cur;
+function makeTexture() {
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  return t;
+}
 
-    const e     = Math.pow(cur, VIS_EASE);
-    const cov   = e * SPAN;
-    const solid = Math.max(0, cov - FEATHER);
-    const mask  = `linear-gradient(to bottom, #000 0%, #000 ${solid.toFixed(2)}%, transparent ${cov.toFixed(2)}%)`;
-    shot.style.webkitMaskImage = mask;
-    shot.style.maskImage       = mask;
+// Half-float levels keep heavy blur from banding; plain 8-bit is the fallback.
+function makeTarget(w, h, useHalf) {
+  const tex = makeTexture();
+  if (useHalf) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
+  else         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8,   w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  const fb = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+  const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+  return { tex, fb, w, h, ok };
+}
 
-    // Radius is divided by the scale factor because the blur is applied before
-    // the element is scaled up. The saturation lift is the Apple vibrancy
-    // trick — blurred pixels go muddy, and pushing colour back in is what keeps
-    // it looking like frosted glass rather than grey soup.
-    shot.style.filter =
-      `blur(${((MIN_BLUR + e * (MAX_BLUR - MIN_BLUR)) / SCALE).toFixed(2)}px) ` +
-      `saturate(${(1 + e * 0.5).toFixed(3)})`;
+function freeTarget(t) {
+  gl.deleteFramebuffer(t.fb);
+  gl.deleteTexture(t.tex);
+}
+
+function initGL() {
+  gl = canvas.getContext('webgl2', {
+    alpha: true, premultipliedAlpha: true, antialias: false, depth: false, stencil: false,
+  });
+  if (!gl) { console.log('[lid-blur] WebGL2 unavailable, effect disabled'); return; }
+
+  blurProg = makeProgram(BLUR_FRAG);
+  compProg = makeProgram(COMPOSITE_FRAG);
+
+  gl.bindVertexArray(gl.createVertexArray());
+
+  halfFloat = false;
+  if (gl.getExtension('EXT_color_buffer_float')) {
+    const probe = makeTarget(1, 1, true);
+    halfFloat = probe.ok;
+    freeTarget(probe);
   }
 
-  if (Math.abs(fade - lastFade) > 0.001) {
-    lastFade = fade;
-    shot.style.opacity = fade.toFixed(3);
-  }
+  gl.useProgram(compProg.p);
+  for (let i = 0; i < 5; i++) gl.uniform1i(compProg.u['uL' + i], i);
+  for (let i = 1; i < 5; i++) gl.uniform1f(compProg.u['uS' + i], LEVELS[i]);
+  gl.uniform1f(compProg.u.uGain, BLUR_GAIN);
+  gl.uniform1f(compProg.u.uFoot, BLUR_FOOT);
+  gl.uniform1f(compProg.u.uEyeY, EYE_Y);
+  gl.uniform1f(compProg.u.uEyeZ, EYE_Z);
+  gl.uniform1f(compProg.u.uFade, FADE_TILT);
+  gl.uniform1f(compProg.u.uPerspective, PERSPECTIVE ? 1 : 0);
 
-  // Vignette strength rides on both how far the lid is over and the settle
-  // fade, as a single opacity write. Eased so it comes in gently.
-  const bt    = Math.max(0, (cur - BLACK_START) / (1 - BLACK_START));
-  const bOpac = bt * bt * (3 - 2 * bt) * fade;   // smoothstep
-  if (Math.abs(bOpac - lastBlack) > 0.001) {
-    lastBlack = bOpac;
-    black.style.opacity = bOpac.toFixed(3);
-  }
+  gl.useProgram(blurProg.p);
+  gl.uniform1i(blurProg.u.uSrc, 0);
 
-  const kt    = Math.max(0, (cur - BLACKOUT_START) / (1 - BLACKOUT_START));
-  const kOpac = kt * kt * (3 - 2 * kt) * fade;   // smoothstep
-  if (Math.abs(kOpac - lastBlackout) > 0.001) {
-    lastBlackout = kOpac;
-    blackout.style.opacity = kOpac.toFixed(3);
+  srcTex = null; levelTex = []; levelTargets = [];
+}
+
+function blurPass(src, dest, ax, ay, sigma) {
+  gl.bindFramebuffer(gl.FRAMEBUFFER, dest.fb);
+  gl.viewport(0, 0, dest.w, dest.h);
+  gl.useProgram(blurProg.p);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, src);
+  gl.uniform2f(blurProg.u.uDestSize, dest.w, dest.h);
+  gl.uniform2f(blurProg.u.uAxis, ax, ay);
+  gl.uniform1f(blurProg.u.uSigma, Math.max(0.5, sigma));
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+
+// Each level blurs the one before it (Gaussians add in quadrature), at a
+// resolution just high enough to hold that blur. Large blurs run on small
+// textures, so the whole set is cheap, and upscaling a blurred texture with
+// linear filtering is invisible.
+function buildLevels(w, h) {
+  for (const t of levelTargets) freeTarget(t);
+  levelTargets = [];
+  levelTex = [srcTex];
+
+  let prevTex = srcTex, prevScale = 1, prevSigma = 0;   // sigma in snapshot pixels
+  for (let k = 1; k < LEVELS.length; k++) {
+    const sigma = LEVELS[k] * h;
+    const add   = Math.sqrt(Math.max(sigma * sigma - prevSigma * prevSigma, 0.25));
+    const scale = Math.min(prevScale, Math.max(prevScale / 2, 3 / add));
+    const dw = Math.max(1, Math.round(w * scale));
+    const dh = Math.max(1, Math.round(h * scale));
+
+    const tmp = makeTarget(dw, dh, halfFloat);
+    const out = makeTarget(dw, dh, halfFloat);
+    blurPass(prevTex, tmp, 1, 0, add * dw / w);
+    blurPass(tmp.tex, out, 0, 1, add * dh / h);
+    freeTarget(tmp);
+
+    levelTargets.push(out);
+    levelTex.push(out.tex);
+    prevTex = out.tex; prevScale = scale; prevSigma = sigma;
   }
 }
 
-// The sensor only speaks ~10 times a second in whole degrees; this fills in the
-// frames between so it glides instead of stepping. It converges and stops on
-// its own, so a stationary lid costs nothing.
-function tick(ts) {
-  const dtMs = Math.min(32, lastTs ? ts - lastTs : 16);
+function uploadShot(img) {
+  if (!srcTex) srcTex = makeTexture();
+  gl.bindTexture(gl.TEXTURE_2D, srcTex);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, img);
+}
+
+function fitCanvas() {
+  const w = Math.round(innerWidth  * devicePixelRatio);
+  const h = Math.round(innerHeight * devicePixelRatio);
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+}
+
+function draw(tilt) {
+  fitCanvas();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  gl.useProgram(compProg.p);
+  for (let i = 0; i < 5; i++) {
+    gl.activeTexture(gl.TEXTURE0 + i);
+    gl.bindTexture(gl.TEXTURE_2D, levelTex[i]);
+  }
+  gl.uniform2f(compProg.u.uRes, canvas.width, canvas.height);
+  gl.uniform1f(compProg.u.uTilt, tilt);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+
+function clearCanvas() {
+  if (!gl || gl.isContextLost()) return;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  gl.clearColor(0, 0, 0, 0);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+}
+
+// Wait two frames so the cleared canvas actually reaches the screen before the
+// window is pulled — otherwise the next gesture flashes this one's last frame.
+function reportIdle() {
+  requestAnimationFrame(() => requestAnimationFrame(() => window.api?.hingeIdle?.()));
+}
+
+function frame(ts) {
+  if (!running) return;
+  const dt = lastTs ? Math.min(50, ts - lastTs) : 16;
   lastTs = ts;
-  const dt = dtMs / 1000;
-
-  const accel = STIFFNESS * (target - cur) - DAMPING * vel;
-  vel += accel * dt;
-  cur += vel * dt;
-
-  fade += (fadeTo - fade) * (1 - Math.exp(-dtMs / TAU_FADE));
-  apply();
-
-  const moving = Math.abs(target - cur) > 0.0008 || Math.abs(vel) > 0.0008;
-  if (moving || Math.abs(fadeTo - fade) > 0.002) {
-    raf = requestAnimationFrame(tick);
-  } else {
-    cur = target; vel = 0; fade = fadeTo; apply();
-    raf = null; lastTs = 0;
-    // Only once it has actually finished animating AND is invisible is it safe
-    // for the main process to pull the window. Hiding on a timer used to cut
-    // the fade off partway, which looked like it vanished.
-    if (fade < 0.01 || cur < 0.002) window.api?.hingeIdle?.();
-  }
-}
-
-function kick() {
-  if (raf === null) { lastTs = 0; raf = requestAnimationFrame(tick); }
-}
-
-window.api?.onHingeShot?.(dataUrl => {
-  if (!dataUrl) {
-    shot.removeAttribute('src');
-    hasShot = false;
-    target = cur = 0; vel = 0;
-    updateFade(); apply();
+  motion.step(dt);
+  if (motion.idle()) {
+    running = false; lastTs = 0;
+    clearCanvas();
+    reportIdle();
     return;
   }
-  // Decode off-screen first, then swap it in — assigning straight to the
-  // visible element lets it appear mid-fade the moment decoding lands.
-  const pre = new Image();
-  pre.onload = () => {
-    shot.src = dataUrl;
-    hasShot = true;
-    updateFade();
-    kick();
-  };
-  pre.src = dataUrl;
+  draw(motion.tilt());
+  requestAnimationFrame(frame);
+}
+
+window.api?.onHingeAngle?.(deg => motion.sample(deg));
+
+window.api?.onHingeShot?.(async shot => {
+  const token = ++shotToken;
+  running = false;
+  clearCanvas();
+  if (!gl || gl.isContextLost()) { window.api?.hingeIdle?.(); return; }
+  try {
+    const img = new Image();
+    img.src = shot.dataUrl;
+    await img.decode();
+    if (token !== shotToken || gl.isContextLost()) return;
+    uploadShot(img);
+    buildLevels(img.naturalWidth, img.naturalHeight);
+  } catch (e) {
+    console.log('[lid-blur] could not prepare snapshot:', e.message);
+    window.api?.hingeIdle?.();
+    return;
+  }
+  motion.reset(shot.anchor, shot.angle);
+  running = true;
+  lastTs = 0;
+  requestAnimationFrame(frame);
 });
 
-window.api?.onHingeProgress?.(p => {
-  if (!hasShot) return;
-  target = Math.max(0, Math.min(1, p));
-  kick();
+canvas.addEventListener('webglcontextlost', e => {
+  e.preventDefault();
+  if (running) { running = false; window.api?.hingeIdle?.(); }
+});
+canvas.addEventListener('webglcontextrestored', () => {
+  try { initGL(); } catch (e) { console.log('[lid-blur] WebGL restore failed:', e.message); gl = null; }
 });
 
-// Lid parked: ease it off and hand the screen back. Moving again brings it
-// straight in.
-window.api?.onHingeSettled?.(s => {
-  isSettled = !!s;
-  updateFade();
-  kick();
-});
-
-apply();
+try {
+  initGL();
+  fitCanvas();
+  clearCanvas();
+} catch (e) {
+  console.log('[lid-blur] WebGL setup failed, effect disabled:', e.message);
+  gl = null;
+}
 </script>
 </body>
 </html>
