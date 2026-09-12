@@ -57,6 +57,14 @@ html,body {
   user-select:none; pointer-events:none;
 }
 
+/* Screen corners — black rounded corners at the top edges, MacBook-style */
+.screen-corner {
+  position:absolute; top:0; width:14px; height:14px;
+  z-index:10; pointer-events:none;
+}
+.screen-corner.left  { left:0;  background:radial-gradient(circle at 100% 100%, transparent 14px, #000000 14px); }
+.screen-corner.right { right:0; background:radial-gradient(circle at 0% 100%,   transparent 14px, #000000 14px); }
+
 /* SVG notch */
 #notch-svg {
   position:absolute; top:0; left:50%; transform:translateX(-50%);
@@ -476,6 +484,9 @@ html,body {
 </style>
 </head>
 <body>
+
+<div class="screen-corner left"></div>
+<div class="screen-corner right"></div>
 
 <svg id="notch-svg" xmlns="http://www.w3.org/2000/svg" overflow="visible">
   <defs>
