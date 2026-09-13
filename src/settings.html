@@ -316,21 +316,11 @@ html,body{
       </div>
       <div class="setting-row">
         <div class="setting-info">
-          <div class="setting-name">Show CPU in collapsed pill</div>
-          <div class="setting-desc">Displays CPU % when no media is playing</div>
+          <div class="setting-name">Lid blur</div>
+          <div class="setting-desc">Blur the desktop as the laptop lid opens and closes</div>
         </div>
         <label class="tog">
-          <input type="checkbox" id="tog-cpu" checked>
-          <div class="tog-track"><div class="tog-thumb"></div></div>
-        </label>
-      </div>
-      <div class="setting-row">
-        <div class="setting-info">
-          <div class="setting-name">Album art glow</div>
-          <div class="setting-desc">Green pulsing glow on album art thumbnail</div>
-        </div>
-        <label class="tog">
-          <input type="checkbox" id="tog-glow" checked>
+          <input type="checkbox" id="tog-lidblur" checked>
           <div class="tog-track"><div class="tog-thumb"></div></div>
         </label>
       </div>
@@ -415,11 +405,8 @@ document.getElementById('tog-startup').addEventListener('change', e => {
 document.getElementById('tog-workspaces').addEventListener('change', e => {
   window.settingsApi?.setSetting('workspaces', e.target.checked);
 });
-document.getElementById('tog-cpu').addEventListener('change', e => {
-  window.settingsApi?.setSetting('showCpu', e.target.checked);
-});
-document.getElementById('tog-glow').addEventListener('change', e => {
-  window.settingsApi?.setSetting('artGlow', e.target.checked);
+document.getElementById('tog-lidblur').addEventListener('change', e => {
+  window.settingsApi?.setSetting('lidBlur', e.target.checked);
 });
 document.getElementById('tog-fullscreen').addEventListener('change', e => {
   window.settingsApi?.setSetting('fullscreen', e.target.checked);
@@ -432,8 +419,7 @@ async function loadSettings() {
     if (!s) return;
     if (s.startup    !== undefined) document.getElementById('tog-startup').checked    = s.startup;
     if (s.workspaces !== undefined) document.getElementById('tog-workspaces').checked = s.workspaces;
-    if (s.showCpu    !== undefined) document.getElementById('tog-cpu').checked        = s.showCpu;
-    if (s.artGlow    !== undefined) document.getElementById('tog-glow').checked       = s.artGlow;
+    if (s.lidBlur    !== undefined) document.getElementById('tog-lidblur').checked    = s.lidBlur;
     if (s.fullscreen !== undefined) document.getElementById('tog-fullscreen').checked = s.fullscreen;
     if (s.enabled    !== undefined) {
       powerCheck.checked = s.enabled;

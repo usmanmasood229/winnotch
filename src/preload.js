@@ -20,4 +20,28 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('charging-change', handler);
     return () => ipcRenderer.removeListener('charging-change', handler);
   },
+
+  // Hinge angle, as 0..1 blur strength (used by lid-blur.html)
+  onHingeProgress: (cb)      => {
+    const handler = (_, p) => cb(p);
+    ipcRenderer.on('hinge-progress', handler);
+    return () => ipcRenderer.removeListener('hinge-progress', handler);
+  },
+
+  // Desktop snapshot to blur (data URL, or null to drop it)
+  onHingeShot: (cb)          => {
+    const handler = (_, dataUrl) => cb(dataUrl);
+    ipcRenderer.on('hinge-shot', handler);
+    return () => ipcRenderer.removeListener('hinge-shot', handler);
+  },
+
+  // true once the lid has stopped moving, false the moment it moves again
+  onHingeSettled: (cb)       => {
+    const handler = (_, isSettled) => cb(isSettled);
+    ipcRenderer.on('hinge-settled', handler);
+    return () => ipcRenderer.removeListener('hinge-settled', handler);
+  },
+
+  // the curtain has finished animating and is fully invisible — safe to hide
+  hingeIdle: ()              => ipcRenderer.send('hinge-idle'),
 });

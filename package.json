@@ -34,6 +34,9 @@
     "files": [
       "src/**/*",
       "package.json"
+    ],
+    "asarUnpack": [
+      "**/*.ps1"
     ]
   },
   "dependencies": {
