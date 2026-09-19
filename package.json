@@ -4,8 +4,10 @@
   "description": "WinNotch — Dynamic Island for Windows",
   "main": "src/main.js",
   "scripts": {
+    "prestart": "node scripts/build-helper.js",
     "start": "electron .",
     "test": "node --test test/lid-motion.test.js",
+    "prebuild": "node scripts/build-helper.js",
     "build": "electron-builder --win --x64"
   },
   "devDependencies": {
@@ -34,10 +36,11 @@
     },
     "files": [
       "src/**/*",
+      "!src/helper/*.cs",
       "package.json"
     ],
     "asarUnpack": [
-      "**/*.ps1"
+      "src/helper/*.exe"
     ]
   },
   "dependencies": {

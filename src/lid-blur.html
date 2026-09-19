@@ -293,7 +293,21 @@ function clearCanvas() {
 // Wait two frames so the cleared canvas actually reaches the screen before the
 // window is pulled — otherwise the next gesture flashes this one's last frame.
 function reportIdle() {
-  requestAnimationFrame(() => requestAnimationFrame(() => window.api?.hingeIdle?.()));
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    window.api?.hingeIdle?.();
+    releaseGpu();
+  }));
+}
+
+// Between gestures the snapshot, its blur levels and a full-screen drawing
+// buffer would otherwise sit in GPU memory doing nothing. All of it is rebuilt
+// from the next snapshot anyway.
+function releaseGpu() {
+  if (running || !gl || gl.isContextLost()) return;
+  for (const t of levelTargets) freeTarget(t);
+  if (srcTex) gl.deleteTexture(srcTex);
+  srcTex = null; levelTex = []; levelTargets = [];
+  canvas.width = 1; canvas.height = 1;
 }
 
 function frame(ts) {

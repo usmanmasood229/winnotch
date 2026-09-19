@@ -7,10 +7,9 @@ const {
 
 const path  = require('path');
 const os    = require('os');
-const { exec, spawn } = require('child_process');
+const { spawn } = require('child_process');
 const fs    = require('fs');
 const https = require('https');
-const ytSearch = require('yt-search');
 
 // ── Single instance ───────────────────────────────────────────────────────────
 const gotTheLock = app.requestSingleInstanceLock();
@@ -22,7 +21,7 @@ app.on('second-instance', () => {
 
 // ── Window ────────────────────────────────────────────────────────────────────
 let win, tray;
-const NOTCH_H = 160;
+const NOTCH_H = 210;   // tall enough for the open panel and its shadow
 
 function getPrimary() { return screen.getPrimaryDisplay(); }
 
@@ -66,7 +65,7 @@ function applySettings() {
   }
 
   if (settings.enabled && settings.lidBlur) {
-    if (!hingeProc) startHingeSensor();
+    startHingeSensor();
   } else {
     stopHingeSensor();
     if (blurWin && !blurWin.isDestroyed() && blurWin.isVisible()) blurWin.hide();
@@ -114,6 +113,7 @@ ipcMain.handle('settings:set', (_, key, value) => {
 ipcMain.on('settings:hide', () => settingsWin?.hide());
 ipcMain.on('settings:quit', () => {
   stopHingeSensor();
+  stopHelper();
   if (tray) tray.destroy();
   app.exit(0);
 });
@@ -183,14 +183,14 @@ function refit() {
 }
 
 // ── Hinge angle → full-screen blur ────────────────────────────────────────────
-// Angle comes from a PowerShell sidecar (see hinge-sensor.ps1) because the
+// Angle comes from the native helper (src/helper/WinNotchHelper.cs) because the
 // hinge is only reachable through the Win32 COM Sensor API, which Node can't
 // call directly.
 //
 // The main process only decides when a gesture starts and grabs the desktop for
 // it. How the blur looks and moves lives in lid-blur.html, which runs per frame:
 // IPC and timers here can't pace an animation smoothly.
-let blurWin = null, blurReady = false, hingeProc = null;
+let blurWin = null, blurReady = false;
 
 function createBlurOverlay() {
   const { bounds } = getPrimary();
@@ -223,12 +223,37 @@ function createBlurOverlay() {
 // image instead. Half resolution: it's about to be blurred, and the grab is far
 // quicker. Only ever called while the overlay is hidden — capturing with it on
 // screen would photograph our own blur. Resolves to a data URL, or null.
-let capturing = false;
+//
+// The native helper captures in tens of milliseconds; desktopCapturer takes
+// 300-450 ms, which made the effect start visibly after the lid had moved. It
+// stays as the fallback for when the helper isn't running or can't capture.
+const SHOT_TIMEOUT_MS = 1500;
+let capturing = false, shotSeq = 0;
+const shotWaiters = new Map();
+
+function onShotLine(rest) {
+  const space = rest.indexOf(' ');
+  const id = space < 0 ? rest : rest.slice(0, space);
+  const b64 = space < 0 ? '' : rest.slice(space + 1).trim();
+  const resolve = shotWaiters.get(id);
+  if (resolve) { shotWaiters.delete(id); resolve(b64); }
+}
+
+function helperShot() {
+  return new Promise(resolve => {
+    const id = String(++shotSeq);
+    if (!sendHelperCommand(`shot ${id}`)) { resolve(''); return; }
+    const timer = setTimeout(() => { shotWaiters.delete(id); resolve(''); }, SHOT_TIMEOUT_MS);
+    shotWaiters.set(id, b64 => { clearTimeout(timer); resolve(b64); });
+  });
+}
 
 async function captureDesktop() {
   if (capturing) return null;
   capturing = true;
   try {
+    const b64 = await helperShot();
+    if (b64) return 'data:image/jpeg;base64,' + b64;
     const display = getPrimary();
     const sources = await desktopCapturer.getSources({
       types: ['screen'],
@@ -238,7 +263,9 @@ async function captureDesktop() {
       },
     });
     const src = sources.find(s => s.display_id === String(display.id)) || sources[0];
-    return src ? src.thumbnail.toDataURL() : null;
+    // JPEG, not PNG: a fraction of the size and encode time, and it's about to
+    // be blurred, so compression artefacts never show.
+    return src ? 'data:image/jpeg;base64,' + src.thumbnail.toJPEG(90).toString('base64') : null;
   } catch (e) {
     console.log('[WinNotch] desktop capture failed:', e.message);
     return null;
@@ -254,9 +281,18 @@ async function captureDesktop() {
 // two apart: closing the lid is a sustained move that keeps going one way,
 // while a bump wobbles and comes straight back. So arming needs both a real
 // excursion and a consistent direction.
-const ARM_DELTA    = 8;   // degrees away from rest before the effect arms
-const CONSISTENT_N = 3;   // consecutive samples that must agree on direction
+// Kept low so the effect starts as the lid starts moving. A false start from a
+// bump is harmless: the renderer ignores sensor rattle, and the overlay stays
+// fully transparent under 2° of tilt until it times out.
+const ARM_DELTA    = 4;   // degrees away from rest before the effect arms
+const CONSISTENT_N = 2;   // consecutive samples that must agree on direction
 const SMOOTH_N     = 3;   // samples averaged to take the edge off the noise
+
+// How far the base accelerometer may stray from its resting reading (in g)
+// before the laptop counts as being moved. The base stays put when only the lid
+// moves, so this rejects carried or nudged laptops without slowing the hinge.
+// Resting noise measured at about 0.02g.
+const LAPTOP_MOVING_G = 0.06;
 
 // Starts disarmed: nothing has been captured yet, so the first real movement is
 // what arms the effect.
@@ -313,8 +349,19 @@ async function arm(anchor) {
   blurWin.showInactive();
 }
 
-function applyHinge(raw) {
+function applyHinge(raw, baseMotion = 0) {
   if (!blurWin || blurWin.isDestroyed() || !blurReady) return;
+
+  // The laptop itself is moving: its acceleration corrupts the reported angle,
+  // so these samples say nothing about the hinge. Mid-gesture the renderer just
+  // holds its last good angle. At rest the readings are dropped without
+  // touching the rest point, and the history is cleared so the lurch can't
+  // count as lid travel once the laptop settles.
+  if (baseMotion > LAPTOP_MOVING_G) {
+    if (!armed) angleHist.length = 0;
+    return;
+  }
+
   lastRaw = raw;
   const angle = smoothAngle(raw);
   lastSmoothed = angle;
@@ -338,40 +385,35 @@ function applyHinge(raw) {
   arm(restAngle);
 }
 
-function startHingeSensor() {
-  // In a packaged build __dirname points inside app.asar, which PowerShell (an
-  // outside process) can't read from. The build unpacks .ps1 files alongside it,
-  // so point at that copy instead.
-  const script = path.join(__dirname, 'hinge-sensor.ps1')
-    .replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
-  hingeProc = spawn('powershell.exe', [
-    '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-STA', '-File', script,
-  ], { windowsHide: true });
+// The angle arrives from the native helper (see "Native helper" below) for as
+// long as the hinge is switched on there.
+let hingeWanted = false;
 
-  let buf = '';
-  hingeProc.stdout.on('data', chunk => {
-    buf += chunk.toString();
-    const lines = buf.split('\n');
-    buf = lines.pop();                    // keep the partial trailing line
-    for (const line of lines) {
-      const angle = parseFloat(line);
-      if (Number.isFinite(angle)) applyHinge(angle);
-    }
-  });
-  // No hinge sensor (or any other failure) just means no blur — the rest of
-  // the app carries on normally.
-  hingeProc.stderr.on('data', d => console.log('[WinNotch]', d.toString().trim()));
-  hingeProc.on('error', e => { hingeProc = null; console.log('[WinNotch] hinge sensor unavailable:', e.message); });
-  hingeProc.on('exit',  c => { hingeProc = null; if (c) console.log('[WinNotch] hinge sensor exited:', c); });
+function startHingeSensor() {
+  hingeWanted = true;
+  sendHelperCommand('hinge on');
 }
 
 function stopHingeSensor() {
+  hingeWanted = false;
+  sendHelperCommand('hinge off');
   disarm();
-  if (hingeProc) { hingeProc.kill(); hingeProc = null; }
 }
 
 ipcMain.on('mouse-enter', () => { if (win && !win.isDestroyed()) win.setIgnoreMouseEvents(false); });
 ipcMain.on('mouse-leave', () => { if (win && !win.isDestroyed()) win.setIgnoreMouseEvents(true, { forward: true }); });
+
+// Where the pointer is, in the notch window's own coordinates. While the window
+// is click-through it only ever sees forwarded mouse *moves*, so a pointer that
+// stops moving or leaves the window goes silent — hover has to be able to ask
+// outright. Window bounds and the cursor are both in screen points, and the
+// page's CSS pixels match, so this needs no scaling.
+ipcMain.handle('cursor-point', () => {
+  if (!win || win.isDestroyed()) return null;
+  const p = screen.getCursorScreenPoint();
+  const b = win.getBounds();
+  return { x: p.x - b.x, y: p.y - b.y };
+});
 
 // ── Charging state query ──────────────────────────────────────────────────────
 ipcMain.handle('get-charging', () => {
@@ -407,112 +449,107 @@ ipcMain.handle('get-stats', async () => {
   return { cpu, ram: Math.round((used / total) * 100) };
 });
 
-// ── PowerShell helpers ────────────────────────────────────────────────────────
-function encodePS(script) {
-  return `powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand ${Buffer.from(script, 'utf16le').toString('base64')}`;
+// ── Native helper ─────────────────────────────────────────────────────────────
+// One small compiled process (src/helper/WinNotchHelper.cs, built by
+// scripts/build-helper.js) reads the hinge and reports / controls media. It
+// replaced a PowerShell process for each job, and before that a fresh
+// PowerShell for every 2s media poll — each one a 60-80 MB runtime.
+const MEDIA_CMDS = new Set(['play', 'pause', 'next', 'prev', 'toggle']);
+const ART_TIMEOUT_MS = 8000;
+
+let helperProc = null, helperRestartTimer = null, helperStopping = false;
+let mediaMeta = null, artWaiters = [];
+
+function settleArtWaiters(b64) {
+  const waiters = artWaiters;
+  artWaiters = [];
+  for (const resolve of waiters) resolve(b64);
 }
 
-function runPS(cmd, maxBuf = 256 * 1024) {
+function onHelperLine(line) {
+  if (line.startsWith('ANGLE ')) {
+    const [angle, baseMotion] = line.slice(6).split(' ').map(parseFloat);
+    if (Number.isFinite(angle)) applyHinge(angle, Number.isFinite(baseMotion) ? baseMotion : 0);
+  } else if (line.startsWith('META ')) {
+    try {
+      const d = JSON.parse(line.slice(5));
+      mediaMeta = d && d.title ? d : null;
+    } catch (_) { mediaMeta = null; }
+  } else if (line.startsWith('ART ')) {
+    settleArtWaiters(line.slice(4).trim());
+  } else if (line.startsWith('SHOT ')) {
+    onShotLine(line.slice(5));
+  }
+}
+
+function startHelper() {
+  if (process.platform !== 'win32' || helperProc) return;
+  helperStopping = false;
+  // In a packaged build __dirname points inside app.asar, which an outside
+  // process can't be launched from; the build unpacks the exe alongside it.
+  const exe = path.join(__dirname, 'helper', 'winnotch-helper.exe')
+    .replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
+  const proc = spawn(exe, [], { windowsHide: true });
+  helperProc = proc;
+
+  // Artwork arrives as one multi-megabyte line, so only the new chunk is
+  // searched for line breaks rather than rescanning everything buffered.
+  let buf = '';
+  proc.stdout.setEncoding('utf8');
+  proc.stdout.on('data', chunk => {
+    if (chunk.indexOf('\n') < 0) { buf += chunk; return; }
+    const lines = (buf + chunk).split('\n');
+    buf = lines.pop();
+    for (const line of lines) onHelperLine(line.replace(/\r$/, ''));
+  });
+  proc.stdin.on('error', () => {});   // helper gone; the exit handler cleans up
+  // No hinge sensor (or any other failure) just means no blur or no media —
+  // the rest of the app carries on normally.
+  proc.stderr.on('data', d => console.log('[WinNotch]', d.toString().trim()));
+  proc.on('error', e => console.log('[WinNotch] helper unavailable:', e.message));
+  proc.on('exit', code => {
+    if (helperProc !== proc) return;
+    helperProc = null;
+    mediaMeta = null;
+    settleArtWaiters('');
+    disarm();
+    if (helperStopping) return;
+    console.log('[WinNotch] helper exited:', code, '— restarting');
+    helperRestartTimer = setTimeout(startHelper, 3000);
+  });
+
+  if (hingeWanted) sendHelperCommand('hinge on');
+}
+
+function stopHelper() {
+  helperStopping = true;
+  clearTimeout(helperRestartTimer);
+  settleArtWaiters('');
+  if (helperProc) {
+    const proc = helperProc;
+    helperProc = null;
+    try { proc.stdin.end(); } catch (_) {}   // closing stdin tells it to exit
+    setTimeout(() => { if (proc.exitCode === null) proc.kill(); }, 1500);
+  }
+}
+
+function sendHelperCommand(cmd) {
+  if (!helperProc || !helperProc.stdin.writable) return false;
+  helperProc.stdin.write(cmd + '\n');
+  return true;
+}
+
+function requestArt() {
   return new Promise(resolve => {
-    exec(cmd, { 
-      timeout: 8000,
-      windowsHide: true, 
-      maxBuffer: maxBuf,
-      env: { ...process.env, POWERSHELL_TELEMETRY_OPTOUT: '1' },
-    }, (err, stdout) => {
-      resolve((stdout || '').trim());
-    });
+    if (!sendHelperCommand('art')) { resolve(''); return; }
+    const timer = setTimeout(() => {
+      artWaiters = artWaiters.filter(r => r !== done);
+      resolve('');
+    }, ART_TIMEOUT_MS);
+    const done = b64 => { clearTimeout(timer); resolve(b64); };
+    artWaiters.push(done);
   });
 }
-
-// ── Shared WinRT setup ────────────────────────────────────────────────────────
-const PS_BASE = `
-Add-Type -AssemblyName System.Runtime.WindowsRuntime
-$asTask=([System.WindowsRuntimeSystemExtensions].GetMethods()|Where-Object{$_.Name -eq 'AsTask' -and $_.IsGenericMethod})[0]
-function WA($t,$type){$gm=$asTask.MakeGenericMethod($type);$task=$gm.Invoke($null,@($t));$task.Wait(-1)|Out-Null;$task.Result}
-
-[void][Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager,Windows.Media.Control,ContentType=WindowsRuntime]
-$mgr=WA ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
-$sessions=$mgr.GetSessions()
-
-$Playing=[Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus]::Playing
-$Paused=[Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus]::Paused
-
-$best=$null;$bestScore=0
-
-foreach($s in $sessions){
- try{
-  $pb=$s.GetPlaybackInfo()
-  $score=0
-
-  if($pb.PlaybackStatus -eq $Playing){$score+=50}
-  elseif($pb.PlaybackStatus -eq $Paused){$score+=10}
-
-  $propsTmp=WA ($s.TryGetMediaPropertiesAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties])
-  if($propsTmp.Title){$score+=20}
-  if($propsTmp.Thumbnail){$score+=10}
-
-  if($score -gt $bestScore){$bestScore=$score;$best=$s}
- }catch{}
-}
-`;
-
-// ── Metadata ──────────────────────────────────────────────────────────────────
-const PS_META = `
-try{
-${PS_BASE}
-if($best -eq $null){Write-Output '{}';exit}
-
-$props=WA ($best.TryGetMediaPropertiesAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties])
-$tl=$best.GetTimelineProperties()
-$pb2=$best.GetPlaybackInfo()
-
-$out=[ordered]@{
- title=[string]$props.Title
- artist=[string]$props.Artist
- album=[string]$props.AlbumTitle
- playing=($pb2.PlaybackStatus -eq $Playing)
- pos=[math]::Floor($tl.Position.TotalSeconds)
- dur=[math]::Floor($tl.EndTime.TotalSeconds)
- src=[string]$best.SourceAppUserModelId
-}
-
-Write-Output ($out|ConvertTo-Json -Compress)
-}catch{Write-Output '{}'}
-`;
-
-// ── Thumbnail from SMTC ───────────────────────────────────────────────────────
-const PS_ART = `
-try{
-${PS_BASE}
-if($best -eq $null){Write-Output '';exit}
-
-$props=WA ($best.TryGetMediaPropertiesAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties])
-if($props.Thumbnail -eq $null){Write-Output '';exit}
-
-[void][Windows.Storage.Streams.IRandomAccessStream,Windows.Storage.Streams,ContentType=WindowsRuntime]
-[void][Windows.Storage.Streams.DataReader,Windows.Storage.Streams,ContentType=WindowsRuntime]
-
-$stream=WA ($props.Thumbnail.OpenReadAsync()) ([Windows.Storage.Streams.IRandomAccessStream])
-$sz=[uint32]$stream.Size
-
-if($sz -gt 0 -and $sz -lt 5242880){
- $reader=[Windows.Storage.Streams.DataReader]::CreateDataReader($stream)
- $null=WA ($reader.LoadAsync($sz)) ([uint32])
- $buf=New-Object byte[] $sz
- $reader.ReadBytes($buf)
- $reader.Dispose()
- $stream.Dispose()
- Write-Output ([Convert]::ToBase64String($buf))
-} else {
- $stream.Dispose()
- Write-Output ''
-}
-}catch{Write-Output ''}
-`;
-
-const CMD_META = encodePS(PS_META);
-const CMD_ART  = encodePS(PS_ART);
 
 // ── YouTube Thumbnail Extractor ───────────────────────────────────────────────
 async function fetchImageAsBase64(url) {
@@ -537,6 +574,9 @@ async function getYouTubeThumbnail(title) {
       const parts = cleanTitle.split(' - ');
       cleanTitle = parts[parts.length - 1];
     }
+    // Loaded on first use: it pulls in a sizeable dependency tree that most
+    // sessions never need.
+    const ytSearch = require('yt-search');
     const searchResult = await ytSearch(cleanTitle);
     if (!searchResult?.videos?.length) return '';
     const video = searchResult.videos[0];
@@ -548,44 +588,23 @@ async function getYouTubeThumbnail(title) {
 // ── Cache ─────────────────────────────────────────────────────────────────────
 let _cachedKey = '', _cachedB64 = '', _fetching = false;
 
-// ── Control scripts ──────────────────────────────────────────────────────────
-function buildCtrlScript(cmd) {
-  const actionMap = {
-    play:  `WA ($best.TryPlayAsync()) ([bool])|Out-Null`,
-    pause: `WA ($best.TryPauseAsync()) ([bool])|Out-Null`,
-    next:  `WA ($best.TrySkipNextAsync()) ([bool])|Out-Null`,
-    prev:  `WA ($best.TrySkipPreviousAsync()) ([bool])|Out-Null`,
-  };
-  const action = actionMap[cmd] || `WA ($best.TryTogglePlayPauseAsync()) ([bool])|Out-Null`;
-  return `try{${PS_BASE}\nif($best -ne $null){${action}}}catch{}`;
-}
-
-const _ctrlMap = {};
-function getCtrlCmd(cmd) {
-  return _ctrlMap[cmd] || (_ctrlMap[cmd] = encodePS(buildCtrlScript(cmd)));
-}
-
 // ── IPC Handlers ──────────────────────────────────────────────────────────────
-ipcMain.handle('get-media', async () => {
-  if (process.platform !== 'win32') return null;
-  const raw = await runPS(CMD_META, 128 * 1024);
-  if (!raw || raw === '{}') return null;
-  try {
-    const d = JSON.parse(raw);
-    if (!d?.title) return null;
-    const artKey = `${d.title}||${d.artist}||${d.album}||${d.src}`;
-    return {
-      title:   String(d.title  || '').trim(),
-      artist:  String(d.artist || '').trim(),
-      album:   String(d.album  || '').trim(),
-      playing: Boolean(d.playing),
-      pos:     Number(d.pos || 0),
-      dur:     Number(d.dur || 0),
-      src:     String(d.src || ''),
-      artKey,
-      art: artKey === _cachedKey ? _cachedB64 : '',
-    };
-  } catch (_) { return null; }
+ipcMain.handle('get-media', () => {
+  const d = mediaMeta;
+  if (!d) return null;
+  // Artwork isn't included: the notch asks for it once per track via get-art.
+  // Sending it here meant re-copying the whole image every 2s just to be
+  // thrown away.
+  return {
+    title:   String(d.title  || '').trim(),
+    artist:  String(d.artist || '').trim(),
+    album:   String(d.album  || '').trim(),
+    playing: Boolean(d.playing),
+    pos:     Number(d.pos || 0),
+    dur:     Number(d.dur || 0),
+    src:     String(d.src || ''),
+    artKey:  `${d.title}||${d.artist}||${d.album}||${d.src}`,
+  };
 });
 
 ipcMain.handle('get-art', async (_, artKey, meta) => {
@@ -594,25 +613,53 @@ ipcMain.handle('get-art', async (_, artKey, meta) => {
   if (_fetching) return '';
   _fetching = true;
   try {
-    let b64 = await runPS(CMD_ART, 16 * 1024 * 1024);
-    if ((!b64 || b64 === '') && meta?.src && meta?.title) {
-      const src = meta.src.toLowerCase();
+    let b64 = await requestArt();
+    if (!b64 && meta?.src && meta?.title) {
+      const src = String(meta.src).toLowerCase();
       const isBrowser = src.includes('chrome') || src.includes('edge') || src.includes('firefox') || src.includes('msedge');
-      if (isBrowser) b64 = await getYouTubeThumbnail(meta.title);
+      if (isBrowser) b64 = await getYouTubeThumbnail(String(meta.title));
     }
-    if (b64 && b64 !== '') { _cachedKey = artKey; _cachedB64 = b64; }
+    if (b64) { _cachedKey = artKey; _cachedB64 = b64; }
     return b64 || '';
-  } catch (_) { return ''; } 
+  } catch (_) { return ''; }
   finally { _fetching = false; }
 });
 
-ipcMain.handle('media-cmd', (_, cmd) => new Promise(resolve => {
-  if (process.platform !== 'win32') return resolve(false);
-  exec(getCtrlCmd(cmd), {
-    timeout: 3000, windowsHide: true, maxBuffer: 64 * 1024,
-    env: { ...process.env, POWERSHELL_TELEMETRY_OPTOUT: '1' },
-  }, (err) => resolve(!err));
-}));
+ipcMain.handle('media-cmd', (_, cmd) => {
+  if (process.platform !== 'win32') return false;
+  return sendHelperCommand(MEDIA_CMDS.has(cmd) ? cmd : 'toggle');
+});
+
+// Screen share: Windows puts casting behind Win+K, and there's no API for it,
+// so the shortcut is pressed for the user. The notch window never takes focus,
+// so the panel opens over whatever they were using.
+ipcMain.handle('open-cast', () => {
+  if (process.platform !== 'win32') return false;
+  const script = [
+    '$s = \'[DllImport("user32.dll")] public static extern void keybd_event(byte b, byte s, uint f, System.UIntPtr e);\'',
+    '$k = Add-Type -MemberDefinition $s -Name Keys -Namespace WinNotch -PassThru',
+    '$k::keybd_event(0x5B,0,0,[UIntPtr]::Zero)',   // Win down
+    '$k::keybd_event(0x4B,0,0,[UIntPtr]::Zero)',   // K down
+    '$k::keybd_event(0x4B,0,2,[UIntPtr]::Zero)',   // K up
+    '$k::keybd_event(0x5B,0,2,[UIntPtr]::Zero)',   // Win up
+  ].join('; ');
+  try {
+    spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true });
+    return true;
+  } catch (e) {
+    console.log('[WinNotch] could not open the cast panel:', e.message);
+    return false;
+  }
+});
+
+// Scrubbing the progress bar. Anything that isn't a sane number of seconds is
+// dropped rather than passed to the player.
+ipcMain.handle('media-seek', (_, seconds) => {
+  if (process.platform !== 'win32') return false;
+  const s = Number(seconds);
+  if (!Number.isFinite(s) || s < 0 || s > 24 * 3600) return false;
+  return sendHelperCommand(`seek ${s.toFixed(3)}`);
+});
 
 // ── Tray ──────────────────────────────────────────────────────────────────────
 function createTray() {
@@ -626,7 +673,7 @@ function createTray() {
     { label: 'Show', click: () => win?.show() },
     { label: 'Hide', click: () => win?.hide() },
     { type: 'separator' },
-    { label: 'Quit', click: () => { stopHingeSensor(); if (tray) tray.destroy(); app.exit(0); }},
+    { label: 'Quit', click: () => { stopHingeSensor(); stopHelper(); if (tray) tray.destroy(); app.exit(0); }},
   ]));
   tray.on('double-click', () => win?.isVisible() ? win.hide() : win?.show());
 }
@@ -642,6 +689,7 @@ app.whenReady().then(() => {
   createWindow();
   createTray();
   createBlurOverlay();
+  startHelper();
   applySettings();   // starts the hinge sensor too, if it's enabled
 });
 
@@ -649,6 +697,7 @@ app.on('window-all-closed', e => e.preventDefault());
 
 app.on('before-quit', () => {
   stopHingeSensor();
+  stopHelper();
   if (win && !win.isDestroyed()) {
     clearInterval(win._aotInterval);
     if (win._refitHandler) {

@@ -105,20 +105,62 @@ test('sensor rattle after the lid stops never makes the blur stutter', () => {
   assert.ok(m.idle(), 'never finished despite the lid being parked');
 });
 
-test('once the lid stops, blur holds briefly then eases away', () => {
+test('once the lid stops, blur holds for a second then eases away', () => {
   const m = create();
   closeTo80(m);
-  const s = run(m, 2500, parkedWithRattle, 10);
-  assert.ok(s[Math.floor(100 / FRAME)] > 20 * DEG, 'released before the hold');
+  const s = run(m, 3500, parkedWithRattle, 10);
+  assert.ok(s[Math.floor(900 / FRAME)] > 20 * DEG, `released before the hold: ${s[Math.floor(900 / FRAME)] / DEG}° at 900ms`);
   const goneAt = s.findIndex(v => Math.abs(v) < 2 * DEG) * FRAME;
-  assert.ok(goneAt > 0 && goneAt < 1000, `still visible after ${goneAt}ms`);
+  assert.ok(goneAt > 1000 && goneAt < 2000, `gone at ${goneAt}ms, expected just after the 1s hold`);
   assert.ok(m.idle());
 });
+
+test('opening the lid clears the blur soon after it stops, smoothly', () => {
+  const m = create();
+  m.reset(80, 80);
+  const moving = run(m, 300, t => 80 + Math.min(t / 300, 1) * 40, 10);   // open to 120
+  assert.ok(Math.abs(moving[moving.length - 1]) > 15 * DEG, 'no blur while opening');
+  const after = run(m, 2000, t => 120 + RATTLE[Math.floor(t / 100) % RATTLE.length], 10);
+  const goneAt = after.findIndex(v => Math.abs(v) < 2 * DEG) * FRAME;
+  // Stillness has to outlast the sensor's own gaps before a lid counts as
+  // stopped, so clearing starts a couple of sample gaps after the last move.
+  assert.ok(goneAt >= 0 && goneAt < 800, `still visible ${goneAt}ms after the lid stopped opening`);
+  const s = moving.concat(after);
+  for (let i = 2; i < s.length; i++) {
+    assert.ok(Math.abs(s[i] - 2 * s[i - 1] + s[i - 2]) < 2 * DEG, `lurched at frame ${i}`);
+  }
+  assert.ok(m.idle(), 'never finished');
+});
+
+// The regression this guards: the hinge sensor on this hardware only reports
+// when the angle changes, about four times a second. A hold shorter than that
+// gap made a moving lid read as stopped between samples, so the blur cleared
+// and bloomed once per sample — an opening lid visibly bounced.
+for (const hz of [4, 10, 30]) {
+  test(`opening at ${hz}Hz rises without bouncing, then fades away`, () => {
+    const m = create();
+    m.reset(80, 80);
+    const opening = run(m, 1200, t => 80 + Math.min(t / 1200, 1) * 50, hz).map(Math.abs);
+    for (let i = 1; i < opening.length; i++) {
+      assert.ok(opening[i] >= opening[i - 1] - 1e-9,
+        `blur fell back mid-open at frame ${i}: ${opening[i - 1] / DEG}° -> ${opening[i] / DEG}°`);
+    }
+    assert.ok(opening[opening.length - 1] > 25 * DEG, `only reached ${opening[opening.length - 1] / DEG}°`);
+
+    const after = run(m, 2500, () => 130, hz).map(Math.abs);
+    const peak = after.indexOf(Math.max(...after));
+    for (let i = peak + 1; i < after.length; i++) {
+      assert.ok(after[i] <= after[i - 1] + 1e-9,
+        `blur came back while fading at frame ${i}: ${after[i - 1] / DEG}° -> ${after[i] / DEG}°`);
+    }
+    assert.ok(m.idle(), 'never finished');
+  });
+}
 
 test('moving again mid-retract picks up without a jump', () => {
   const m = create();
   closeTo80(m);
-  run(m, 350, parkedWithRattle, 10);                   // hold passes, retract starts
+  run(m, 1200, parkedWithRattle, 10);                  // hold passes, retract starts
   const s = run(m, 400, t => 80 - Math.min(t / 300, 1) * 30, 10);  // close further
   for (let i = 2; i < s.length; i++) {
     assert.ok(Math.abs(s[i] - 2 * s[i - 1] + s[i - 2]) < 1.5 * DEG, `lurched at frame ${i}`);
