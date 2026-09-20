@@ -4,10 +4,14 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('api', {
   mouseEnter:  ()            => ipcRenderer.send('mouse-enter'),
   mouseLeave:  ()            => ipcRenderer.send('mouse-leave'),
+  // Pointer position in the notch window's coordinates, or null
+  cursorPoint: ()            => ipcRenderer.invoke('cursor-point'),
   getStats:    ()            => ipcRenderer.invoke('get-stats'),
   getMedia:    ()            => ipcRenderer.invoke('get-media'),
   getArt:      (artKey,meta) => ipcRenderer.invoke('get-art', artKey, meta),
   mediaCmd:    (cmd)         => ipcRenderer.invoke('media-cmd', cmd),
+  mediaSeek:   (seconds)     => ipcRenderer.invoke('media-seek', seconds),
+  openCast:    ()            => ipcRenderer.invoke('open-cast'),
   mediaPlay:   ()            => ipcRenderer.invoke('media-cmd', 'play'),
   mediaPause:  ()            => ipcRenderer.invoke('media-cmd', 'pause'),
   mediaNext:   ()            => ipcRenderer.invoke('media-cmd', 'next'),

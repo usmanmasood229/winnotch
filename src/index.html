@@ -5,19 +5,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>WinNotch — Vibrant Wave Colors</title>
 <style>
-@font-face { font-family:'Sora'; src:url('fonts/Sora-Regular.ttf') format('truetype'); font-weight:400; }
-@font-face { font-family:'Sora'; src:url('fonts/Sora-SemiBold.ttf') format('truetype'); font-weight:600; }
-@font-face { font-family:'Sora'; src:url('fonts/Sora-Bold.ttf') format('truetype'); font-weight:700; }
+@font-face { font-family:'SF Pro Display'; src:url('fonts/SFProDisplay-Regular.otf') format('opentype'); font-weight:400; font-display:block; }
+@font-face { font-family:'SF Pro Display'; src:url('fonts/SFProDisplay-Medium.otf')  format('opentype'); font-weight:500; font-display:block; }
+/* No upright semibold in the set, so 600 and 700 both take Bold. */
+@font-face { font-family:'SF Pro Display'; src:url('fonts/SFProDisplay-Bold.otf')    format('opentype'); font-weight:600; font-display:block; }
+@font-face { font-family:'SF Pro Display'; src:url('fonts/SFProDisplay-Bold.otf')    format('opentype'); font-weight:700; font-display:block; }
 
 :root {
   --notch-w:   200px;
   --notch-h:   29px;
-  --notch-ear: 9px;
+  --notch-ear: 9px;    /* closed: the curve into the screen edge */
+  --panel-ear: 16px;   /* open: a wider sweep into the top corners */
   --notch-rb:  10px;
-  --panel-w:   420px;
-  --panel-h:   92px;
-  --panel-rb:  16px;
-  --font: 'Sora', system-ui, sans-serif;
+  --panel-w:   310px;
+  --panel-h:   142px;
+  --panel-rb:  30px;
+  --font: 'SF Pro Display', system-ui, sans-serif;
   --green: #34d962;
   --w100: #fff;
   --w92:  rgba(255,255,255,.92);
@@ -66,7 +69,27 @@ html,body {
 }
 #notch-shadow { fill:rgba(0,0,0,0); filter:url(#nblur); transition:fill 280ms ease; }
 #notch-svg.active #notch-shadow { fill:rgba(0,0,0,.65); }
+/* Solid where it meets the top of the screen, easing to translucent toward the
+   bottom edge, so the open panel reads as a pane of glass hanging off the
+   bezel rather than a black slab. Only when it's open: the collapsed pill has
+   to look like part of the bezel, so it stays solid.
+   (The desktop behind shows through unblurred — a transparent window can't
+   blur what's behind it, so the fade stops well short of clear.) */
 #notch-body { fill:#000; }
+#notch-svg.open #notch-body { fill:url(#glass-fill); }
+
+/* ── Glass depth, open only ──
+   Closed, the notch is flat black so it passes for bezel. The depth only
+   appears once the panel is open. */
+#notch-glass   { display:none; }
+#notch-svg.open #notch-glass { display:block; }
+/* Only the light along the bottom edge. A dark layer over the top of the
+   panel fill would have cancelled out the fade to transparent. */
+#glass-floor-l { fill:url(#glass-floor); opacity:.85; }
+/* A hairline along the bottom edge and its two corners, where the panel meets
+   the desktop showing through. Open only. */
+#notch-edge { fill:none; stroke:url(#edge-grad); stroke-width:1; opacity:0; }
+#notch-svg.open #notch-edge { opacity:1; }
 
 /* Hit zone */
 #notch-hit {
@@ -166,6 +189,10 @@ html,body {
   opacity: 1;
   box-shadow: var(--glow-pill);
 }
+/* This glow sits behind the collapsed pill's artwork and is sized from the
+   notch shape, so an open panel would blow it up into a big glowing square
+   floating over the layout. The open panel has its own artwork. */
+#pill-art-glow.panel-open { display: none !important; }
 
 /* RIGHT SIDE: Wave animation — an animated SVG whose bars are drawn in
    currentColor, so they follow the artwork's accent. */
@@ -194,21 +221,89 @@ html,body {
   transition: color .4s ease;
 }
 
+/* ── Liquid glass on the lower edge ──
+   Light catching the thickness of the glass: hairline rims just inside the
+   edge, and a 45-degree streak that pools in the two bottom corners. Masked
+   to the lower half, where the panel goes transparent and the edge needs
+   defining. */
+#glass-edge {
+  position:absolute; inset:0;
+  z-index:4; pointer-events:none;
+  opacity:0;
+  transition:opacity 220ms ease;
+  box-shadow:
+    inset 2px -2px 1px -1px rgba(255,255,255,.30),
+    inset -2px 2px 1px -1px rgba(255,255,255,.30),
+    inset 6px -6px 1px -6px rgba(255,255,255,.20),
+    inset -6px 6px 1px -6px rgba(255,255,255,.20),
+    inset 0 0 2px rgba(0,0,0,.55);
+  -webkit-mask-image:linear-gradient(to bottom, transparent 30%, #000 85%);
+  mask-image:linear-gradient(to bottom, transparent 30%, #000 85%);
+}
+#notch-content.open #glass-edge { opacity:1; }
+#glass-edge:before {
+  content:''; position:absolute; inset:4px;
+  border-radius:inherit;
+  border:1px solid rgba(255,255,255,.14);
+  filter:blur(1px);
+}
+/* No 45-degree streak: it lit the two corners and left the middle dark, which
+   read as uneven. The rims alone are the same all the way round. */
+
+/* ── Charging ── */
+#charge {
+  position:absolute; inset:0;
+  display:flex; align-items:center; justify-content:center; gap:10px;
+  opacity:0; pointer-events:none;
+  transform:translateY(-5px) scale(.94);
+  transition:opacity 90ms ease, transform 170ms var(--ease-close);
+}
+#notch-content.charging #charge {
+  opacity:1;
+  transform:none;
+  transition:opacity 200ms ease 70ms, transform 460ms var(--ease-open) 50ms;
+}
+#notch-content.charging #pill { opacity:0; transform:scale(.8); }
+/* The pill's artwork glow lives outside this box and is sized from the notch
+   shape, so a grown notch turns it into a floating blurred square. */
+#pill-art-glow.charging { display:none !important; }
+/* The charge level: a bare line that grows, no track behind it. */
+#charge-bar-fill {
+  height:3px; width:0;
+  border-radius:99px;
+  background:#fff;
+  box-shadow:0 0 8px rgba(255,255,255,.45);
+  transition:width 820ms var(--ease-open) 160ms;
+}
+#charge-glyph {
+  height:15px; width:auto; flex-shrink:0;
+  color:#fff;
+}
+#charge-pct {
+  font-size:13px; font-weight:600; color:#fff;
+  letter-spacing:-.01em; font-variant-numeric:tabular-nums;
+}
+
 /* ── Expanded panel ── */
+/* Stacked, like the reference: art and title across the top, the progress bar
+   spanning the full width with its times on either end, then the transport
+   row centred underneath. */
 #panel {
   position:absolute;
   inset:0;
   display:flex;
-  align-items:center;
-  padding:12px 18px;
-  gap:14px;
+  flex-direction:column;
+  justify-content:center;
+  padding:14px 20px 12px;
+  gap:9px;
   pointer-events:none;
   opacity:0;
   transform:translateY(-8px) scale(.97);
   transition:opacity 80ms ease, transform 200ms var(--ease-close);
-  background:rgba(8,8,10,.7);
-  backdrop-filter:blur(24px);
-  border-radius:18px;
+  /* The notch shape itself is the glass surface now; a second tinted layer on
+     top only muddied it and cancelled the fade. */
+  background:transparent;
+  border-radius:30px;
 }
 #notch-content.open #panel {
   opacity:1;
@@ -219,9 +314,9 @@ html,body {
 
 /* Panel album art — backlight glow only, no border ring */
 #m-art {
-  width: 56px;
-  height: 56px;
-  border-radius: 12px;
+  width: 42px;
+  height: 42px;
+  border-radius: 7px;
   flex-shrink: 0;
   overflow: hidden;
   background: #1a1a1e;
@@ -233,8 +328,10 @@ html,body {
   box-shadow: none;
   transition: box-shadow 600ms ease;
 }
+/* No backlight behind the open panel's cover — it read as a blurred halo
+   around the artwork rather than depth. The collapsed pill keeps its glow. */
 #m-art.glowing {
-  box-shadow: var(--glow-panel);
+  box-shadow: none;
 }
 #m-art img {
   position: absolute;
@@ -256,15 +353,41 @@ html,body {
 }
 
 /* Track info */
+#m-head {
+  display:flex;
+  align-items:center;
+  gap:12px;
+  min-width:0;
+}
 #m-track {
   flex:1;
   min-width:0;
   display:flex;
   flex-direction:column;
-  gap:3px;
+  gap:2px;
 }
+/* The bars ride at the end of the title line, level with the text and hard
+   against the panel's right edge. A long title ellipsises against them. */
+#m-title-row {
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-width:0;
+}
+#m-wave {
+  margin-left:auto;
+  flex:0 0 auto;
+  width:22px;
+  height:17px;
+  color:var(--accent, #fff);
+  opacity:0;
+  transition:opacity 220ms ease;
+}
+#m-wave.visible { opacity:.9; }
+#m-wave svg { width:100%; height:100%; display:block; }
 #m-title {
-  font-size:12px;
+  min-width:0;
+  font-size:15px;
   font-weight:700;
   color:var(--w92);
   white-space:nowrap;
@@ -273,51 +396,88 @@ html,body {
   letter-spacing:-.02em;
 }
 #m-artist {
-  font-size:9.5px;
+  font-size:11px;
   font-weight:500;
   color:var(--w55);
   white-space:nowrap;
   overflow:hidden;
   text-overflow:ellipsis;
 }
-#m-prog-bar {
-  height:2.5px;
-  background:var(--w08);
-  border-radius:3px;
-  overflow:hidden;
-  margin-top:7px;
+/* Time on each side of a fully rounded track, white where it has played. */
+#m-prog-row {
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin-top:9px;
 }
+/* The grab area is taller than the track it draws, so the bar is easy to hit
+   without making the line itself thick. */
+#m-prog-hit {
+  flex:1;
+  height:18px;
+  display:flex;
+  align-items:center;
+  cursor:pointer;
+  pointer-events:all;
+}
+#m-prog-bar {
+  position:relative;
+  width:100%;
+  height:5px;
+  background:rgba(255,255,255,.26);
+  border-radius:999px;
+  transition:height 120ms ease;
+}
+#m-prog-hit:hover #m-prog-bar, #m-prog-hit.scrubbing #m-prog-bar { height:7px; }
+#m-prog-knob {
+  position:absolute;
+  top:50%;
+  width:11px;
+  height:11px;
+  margin-left:-5.5px;
+  border-radius:50%;
+  background:#fff;
+  box-shadow:0 1px 4px rgba(0,0,0,.5);
+  transform:translateY(-50%) scale(0);
+  transition:transform 130ms var(--ease-open);
+  pointer-events:none;
+}
+#m-prog-hit:hover #m-prog-knob, #m-prog-hit.scrubbing #m-prog-knob { transform:translateY(-50%) scale(1); }
 #m-prog-fill {
   height:100%;
-  border-radius:3px;
-  background: rgba(var(--accent-rgb), 0.60);
+  border-radius:999px;
+  background:#fff;
+  box-shadow:0 0 6px rgba(255,255,255,.3);
   width:0%;
-  transition:width 1s linear, background 600ms ease;
+  transition:width 1s linear;
 }
-#m-time {
-  display:flex;
-  justify-content:space-between;
-  font-size:7px;
-  font-weight:500;
-  color:var(--w25);
-  margin-top:4px;
+/* While scrubbing the fill follows the pointer, so the one-second catch-up
+   transition would drag behind the finger. */
+#m-prog-hit.scrubbing #m-prog-fill { transition:none; }
+#m-prog-row span {
+  font-size:10px;
+  font-weight:600;
+  color:rgba(255,255,255,.75);
   letter-spacing:.3px;
+  flex-shrink:0;
+  font-variant-numeric:tabular-nums;
 }
 
 /* Controls */
 #m-ctrl {
   display:flex;
   align-items:center;
-  gap:5px;
+  justify-content:center;
+  gap:18px;
   flex-shrink:0;
 }
 .mc {
-  width:28px;
-  height:28px;
+  width:26px;
+  height:26px;
   border-radius:50%;
   border:none;
   background:transparent;
-  color:var(--w40);
+  color:rgba(255,255,255,.88);
   display:flex;
   align-items:center;
   justify-content:center;
@@ -327,25 +487,34 @@ html,body {
   -webkit-app-region:no-drag;
 }
 .mc:hover {
-  color:var(--w92);
-  background:var(--w08);
+  color:#fff;
+  background:transparent;
 }
 .mc:active {
   transform:scale(.74);
   color:var(--w100);
 }
+/* The SF glyphs aren't square, so they're sized by height and left to keep
+   their own proportions. */
 .mc svg {
-  width:12px;
   height:12px;
+  width:auto;
   pointer-events:none;
 }
+/* Shuffle and output sit a step back from the transport controls. */
+.mc.sm { color:rgba(255,255,255,.5); }
+.mc.sm svg { width:15px; height:15px; }
+/* No disc behind the play/pause glyph — just the mark itself, bigger and
+   brighter than its neighbours, the way the transport controls are drawn on
+   iOS. */
 .mc.pp {
-  width:32px;
-  height:32px;
-  background:var(--w08);
-  color:var(--w92);
-  border:1px solid var(--w25);
+  width:34px;
+  height:34px;
+  background:transparent;
+  color:#fff;
+  border:none;
 }
+.mc.pp svg { height:19px; width:auto; }
 .mc.pp:hover {
   background:var(--w14);
 }
@@ -354,38 +523,6 @@ html,body {
   color:#fff!important;
 }
 
-/* Badge */
-#m-badge {
-  font-size:6.8px;
-  font-weight:800;
-  letter-spacing:.12em;
-  text-transform:uppercase;
-  padding:2px 7px;
-  border-radius:40px;
-  flex-shrink:0;
-  border:1px solid;
-  display:none;
-  margin-bottom:5px;
-}
-#m-badge.sp {
-  display:flex;
-  color:var(--green);
-  border-color:rgba(52,217,98,.35);
-  background:rgba(52,217,98,.1);
-}
-#m-badge.yt {
-  display:flex;
-  color:#ff6b6b;
-  border-color:rgba(255,80,80,.3);
-  background:rgba(255,80,80,.1);
-}
-#m-badge.br {
-  display:flex;
-  color:var(--w55);
-  border-color:var(--w14);
-  background:var(--w04);
-}
-
 /* No media */
 #no-media {
   display:none;
@@ -396,7 +533,7 @@ html,body {
   gap:8px;
   background:rgba(0,0,0,.4);
   backdrop-filter:blur(12px);
-  border-radius:18px;
+  border-radius:14px;
 }
 /* No media */
 #no-media {
@@ -408,7 +545,7 @@ html,body {
   gap:8px;
   background:rgba(0,0,0,.4);
   backdrop-filter:blur(12px);
-  border-radius:18px;
+  border-radius:14px;
 }
 #no-media svg { color:var(--w25); }
 #no-media span {
@@ -474,9 +611,52 @@ html,body {
     <filter id="nblur" x="-60%" y="-60%" width="220%" height="220%">
       <feGaussianBlur stdDeviation="10"/>
     </filter>
+    <linearGradient id="glass-fill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0"    stop-color="#000" stop-opacity="1"/>
+      <stop offset="0.34" stop-color="#000" stop-opacity="0.94"/>
+      <stop offset="0.68" stop-color="#020203" stop-opacity="0.5"/>
+      <stop offset="1"    stop-color="#050507" stop-opacity="0.05"/>
+    </linearGradient>
+
+    <!-- Liquid glass. The notch reads as a piece of thick curved glass: black
+         at its core, charcoal up the inner walls, light gathering along the
+         lower curve and a thin bright rim where the light wraps the edge.
+         Every layer is a soft gradient, no filters: the shape is redrawn every
+         animation frame, and filter regions would be re-rasterised with it. -->
+    <clipPath id="notch-clip"><path id="notch-clip-path"/></clipPath>
+
+    <!-- Core black easing out to charcoal against the walls. -->
+    <radialGradient id="glass-core" cx="0.5" cy="0.42" r="0.78">
+      <stop offset="0"    stop-color="#000000"/>
+      <stop offset="0.55" stop-color="#050506" stop-opacity="0.85"/>
+      <stop offset="1"    stop-color="#1e1e22" stop-opacity="0.75"/>
+    </radialGradient>
+
+    <!-- The bottom hairline dies away before it reaches the corners, so it
+         reads as light catching the edge rather than a drawn border. -->
+    <linearGradient id="edge-grad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0"    stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="0.22" stop-color="#ffffff" stop-opacity="0.22"/>
+      <stop offset="0.5"  stop-color="#ffffff" stop-opacity="0.34"/>
+      <stop offset="0.78" stop-color="#ffffff" stop-opacity="0.22"/>
+      <stop offset="1"    stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- Light along the inside of the lower edge. Vertical only, so it reads
+         the same all the way across instead of pooling in the middle. -->
+    <linearGradient id="glass-floor" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0"    stop-color="#ffffff" stop-opacity="0.22"/>
+      <stop offset="0.35" stop-color="#cfd4dc" stop-opacity="0.07"/>
+      <stop offset="1"    stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+
   </defs>
   <path id="notch-shadow"/>
   <path id="notch-body"/>
+  <g id="notch-glass" clip-path="url(#notch-clip)">
+    <rect id="glass-floor-l" x="0" y="0"/>
+  </g>
+  <path id="notch-edge"/>
 </svg>
 
 <!-- Pill glow ghost: lives OUTSIDE #notch-content so overflow:hidden won't clip it -->
@@ -485,6 +665,12 @@ html,body {
 <div id="notch-hit"></div>
 
 <div id="notch-content">
+  <div id="glass-edge"></div>
+  <div id="charge">
+    <svg id="charge-glyph" viewBox="0 0 17.62 8.39" fill="currentColor"><path id="charge-glyph-path"/></svg>
+    <span id="charge-pct">—</span>
+    <i id="charge-bar-fill"></i>
+  </div>
   <div id="pill">
     <div id="pill-art">
       <div class="pill-ph">
@@ -506,46 +692,79 @@ html,body {
       <span>Nothing playing</span>
     </div>
 
-    <div id="m-art">
-      <div class="art-ph">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+    <div id="m-head">
+      <div id="m-art">
+        <div class="art-ph">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+          </svg>
+        </div>
+      </div>
+      <div id="m-track">
+        <div id="m-title-row">
+          <div id="m-title">—</div>
+          <div id="m-wave"></div>
+        </div>
+        <div id="m-artist">—</div>
+      </div>
+    </div>
+
+    <div id="m-prog-row">
+      <span id="m-pos">0:00</span>
+      <div id="m-prog-hit">
+        <div id="m-prog-bar">
+          <div id="m-prog-fill"></div>
+          <div id="m-prog-knob"></div>
+        </div>
+      </div>
+      <span id="m-dur">0:00</span>
+    </div>
+
+    <div id="m-ctrl">
+      <button class="mc sm" id="btn-shuffle" title="Shuffle">
+        <svg viewBox="0 0 13.53 10.62" fill="currentColor">
+          <path d="M0 8.30859C0 8.01562 0.222656 7.82227 0.539062 7.82227H1.9043C2.50195 7.82227 2.90625 7.60547 3.41602 7.01367L4.875 5.30859L3.41602 3.60352C2.90625 3.01172 2.50195 2.79492 1.9043 2.79492H0.539062C0.222656 2.79492 0 2.60156 0 2.30859C0 2.01562 0.216797 1.82227 0.539062 1.82227H1.875C2.84766 1.82227 3.4043 2.09766 4.11328 2.91797L5.51953 4.55859L6.96094 2.87109C7.66406 2.05078 8.22656 1.77539 9.20508 1.77539H10.4297V0.363281C10.4297 0.128906 10.5645 0 10.8047 0C10.916 0 11.0215 0.0351562 11.1094 0.105469L13.3242 1.94531C13.5117 2.10938 13.5117 2.34961 13.3242 2.50195L11.1094 4.33594C11.0215 4.40625 10.916 4.44727 10.8047 4.44727C10.5645 4.44727 10.4297 4.3125 10.4297 4.07812V2.75391H9.23438C8.58984 2.75391 8.16797 2.9707 7.66406 3.55664L6.16406 5.30859L7.66406 7.06055C8.16797 7.64648 8.58984 7.86328 9.23438 7.86328H10.4297V6.53906C10.4297 6.30469 10.5645 6.16992 10.8047 6.16992C10.916 6.16992 11.0215 6.21094 11.1094 6.28125L13.3242 8.11523C13.5117 8.26758 13.5117 8.50781 13.3242 8.67188L11.1094 10.5117C11.0215 10.582 10.916 10.6172 10.8047 10.6172C10.5645 10.6172 10.4297 10.4883 10.4297 10.2539V8.8418H9.20508C8.22656 8.8418 7.66406 8.56641 6.96094 7.74609L5.51953 6.05859L4.11328 7.69922C3.4043 8.51953 2.84766 8.79492 1.875 8.79492H0.539062C0.216797 8.79492 0 8.60156 0 8.30859Z"/>
         </svg>
-      </div>
-    </div>
-
-    <div id="m-track">
-      <div id="m-title">—</div>
-      <div id="m-artist">—</div>
-      <div id="m-prog-bar"><div id="m-prog-fill"></div></div>
-      <div id="m-time"><span id="m-pos">0:00</span><span id="m-dur">0:00</span></div>
-    </div>
-
-    <div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex-shrink:0">
-      <span id="m-badge"></span>
-      <div id="m-ctrl">
-        <button class="mc" id="btn-prev">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
-        </button>
-        <button class="mc pp" id="btn-play">
-          <svg id="ico-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-          <svg id="ico-pause" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
-        </button>
-        <button class="mc" id="btn-next">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zm8-12v12h2V6h-2z"/></svg>
-        </button>
-      </div>
+      </button>
+      <!-- Transport glyphs are SF Symbols: forward.fill as supplied, mirrored
+           for backward, its single triangle for play, and pause built from the
+           same rounded bar. -->
+      <button class="mc" id="btn-prev" title="Previous">
+        <svg viewBox="0 0 16.52 9.28" fill="currentColor">
+          <path transform="translate(16.52,0) scale(-1,1)" d="M0 8.36719V0.914062C0 0.298828 0.369141 0 0.796875 0C0.984375 0 1.18359 0.0527344 1.37109 0.164062L7.61133 3.79688C7.96289 4.00195 8.16797 4.18359 8.24414 4.41211V0.914062C8.24414 0.298828 8.60742 0 9.04102 0C9.22852 0 9.42188 0.0527344 9.61523 0.164062L15.8496 3.79688C16.3125 4.06641 16.5176 4.28906 16.5176 4.64062C16.5176 4.98633 16.3125 5.21484 15.8496 5.48438L9.61523 9.11719C9.42188 9.22266 9.22852 9.27539 9.04102 9.27539C8.60742 9.27539 8.24414 8.98242 8.24414 8.36719V4.86914C8.16797 5.09766 7.96289 5.2793 7.61133 5.48438L1.37109 9.11719C1.18359 9.22266 0.984375 9.27539 0.796875 9.27539C0.369141 9.27539 0 8.98242 0 8.36719Z"/>
+        </svg>
+      </button>
+      <button class="mc pp" id="btn-play" title="Play/pause">
+        <svg id="ico-play" viewBox="0 0 8.28 9.28" fill="currentColor">
+          <path transform="translate(-8.244,0)" d="M8.24414 0.914062C8.24414 0.298828 8.60742 0 9.04102 0C9.22852 0 9.42188 0.0527344 9.61523 0.164062L15.8496 3.79688C16.3125 4.06641 16.5176 4.28906 16.5176 4.64062C16.5176 4.98633 16.3125 5.21484 15.8496 5.48438L9.61523 9.11719C9.42188 9.22266 9.22852 9.27539 9.04102 9.27539C8.60742 9.27539 8.24414 8.98242 8.24414 8.36719V0.914062Z"/>
+        </svg>
+        <svg id="ico-pause" viewBox="0 0 7.65 9.22" fill="currentColor" style="display:none">
+          <rect x="0"   y="0" width="3.05" height="9.22" rx="0.85"/>
+          <rect x="4.6" y="0" width="3.05" height="9.22" rx="0.85"/>
+        </svg>
+      </button>
+      <button class="mc" id="btn-next" title="Next">
+        <svg viewBox="0 0 16.52 9.28" fill="currentColor">
+          <path d="M0 8.36719V0.914062C0 0.298828 0.369141 0 0.796875 0C0.984375 0 1.18359 0.0527344 1.37109 0.164062L7.61133 3.79688C7.96289 4.00195 8.16797 4.18359 8.24414 4.41211V0.914062C8.24414 0.298828 8.60742 0 9.04102 0C9.22852 0 9.42188 0.0527344 9.61523 0.164062L15.8496 3.79688C16.3125 4.06641 16.5176 4.28906 16.5176 4.64062C16.5176 4.98633 16.3125 5.21484 15.8496 5.48438L9.61523 9.11719C9.42188 9.22266 9.22852 9.27539 9.04102 9.27539C8.60742 9.27539 8.24414 8.98242 8.24414 8.36719V4.86914C8.16797 5.09766 7.96289 5.2793 7.61133 5.48438L1.37109 9.11719C1.18359 9.22266 0.984375 9.27539 0.796875 9.27539C0.369141 9.27539 0 8.98242 0 8.36719Z"/>
+        </svg>
+      </button>
+      <button class="mc sm" id="btn-cast" title="Screen share">
+        <svg viewBox="0 0 17.69 10.18" fill="currentColor">
+          <path d="M0.5625 10.0605C0.251953 10.0605 0 9.82031 0 9.50391C0 4.27734 3.9668 0 8.83594 0C13.7109 0 17.6836 4.27734 17.6836 9.50391C17.6836 9.82031 17.4258 10.0605 17.1152 10.0605C16.8047 10.0605 16.5645 9.82031 16.5645 9.50391C16.5645 4.88672 13.0957 1.125 8.83594 1.125C4.58203 1.125 1.11914 4.88672 1.11914 9.50391C1.11914 9.82031 0.873047 10.0605 0.5625 10.0605ZM8.84766 6.07031C7.85156 6.07031 7.01367 5.19141 7.01367 4.06641C7.01367 2.96484 7.85742 2.0918 8.84766 2.0918C9.83203 2.0918 10.6816 2.95312 10.6816 4.06055C10.6816 5.19141 9.83789 6.07031 8.84766 6.07031ZM3.28125 10.0605C2.9707 10.0605 2.72461 9.82031 2.72461 9.50977C2.72461 6.99609 4.11914 4.7168 6.24023 3.65625C6.1582 4.07812 6.18164 4.5 6.31055 4.91016C4.80469 5.87695 3.84961 7.59961 3.84961 9.50977C3.84961 9.82031 3.58594 10.0605 3.28125 10.0605ZM14.4023 10.0605C14.0918 10.0605 13.834 9.82031 13.834 9.50977C13.834 7.60547 12.8848 5.88867 11.3906 4.92188C11.5137 4.51172 11.5371 4.08398 11.4668 3.66797C13.5762 4.73438 14.9648 6.99609 14.9648 9.50977C14.9648 9.82031 14.7129 10.0605 14.4023 10.0605ZM5.91211 10.1719C5.38477 10.1719 5.06836 9.91992 5.06836 9.49805C5.06836 8.32617 6.52734 6.74414 8.84766 6.74414C11.1621 6.74414 12.627 8.32617 12.627 9.49805C12.627 9.91992 12.2988 10.1719 11.7773 10.1719H5.91211Z"/>
+        </svg>
+      </button>
     </div>
   </div>
 </div>
 
+<script src="media-title.js"></script>
 <script>
 'use strict';
 
 // ── Shape & Geometry ─────────────────────────────────────────────────────────
 function cv(n) { return parseFloat(getComputedStyle(document.documentElement).getPropertyValue(n)) || 0; }
 const EAR=()=>cv('--notch-ear'), CW=()=>cv('--notch-w'), CH=()=>cv('--notch-h'), CR=()=>cv('--notch-rb');
-const EW=()=>cv('--panel-w'),   EH=()=>cv('--panel-h'), ER=()=>cv('--panel-rb');
+const EW=()=>cv('--panel-w'),   EH=()=>cv('--panel-h'), ER=()=>cv('--panel-rb'), EE=()=>cv('--panel-ear');
 
 function makePath(nw,nh,ear,rb) {
   const lx=ear, rx=ear+nw, ex=ear*2+nw, r=Math.min(rb,nh*.48);
@@ -557,15 +776,32 @@ const bodyPath = document.getElementById('notch-body');
 const shadPath = document.getElementById('notch-shadow');
 const hitEl    = document.getElementById('notch-hit');
 const contEl   = document.getElementById('notch-content');
+const clipPath   = document.getElementById('notch-clip-path');
+const floorLayer = document.getElementById('glass-floor-l');
+const edgePath   = document.getElementById('notch-edge');
+const glassEdge  = document.getElementById('glass-edge');
 
-function applyShape(nw,nh,rb) {
-  const ear=EAR(), tw=nw+ear*2, d=makePath(nw,nh,ear,rb);
+function applyShape(nw,nh,rb,ear) {
+  if (!(ear > 0)) ear = EAR();
+  const tw=nw+ear*2, d=makePath(nw,nh,ear,rb);
   svgEl.style.cssText=`width:${tw}px;height:${nh}px`;
   svgEl.setAttribute('width',tw); svgEl.setAttribute('height',nh);
   bodyPath.setAttribute('d',d);
   shadPath.setAttribute('d',d); shadPath.setAttribute('transform','translate(0,5)');
+
+  // Glass layers follow the shape as it animates.
+  clipPath.setAttribute('d',d);
+  floorLayer.setAttribute('width',tw); floorLayer.setAttribute('height',nh);
+
+  // Just the bottom run and its two corners — the sides and the screen edge
+  // stay unlit.
+  const r = Math.min(rb, nh * 0.48), lx = ear, rx = ear + nw;
+  edgePath.setAttribute('d',
+    `M ${lx},${nh - r} Q ${lx},${nh} ${lx + r},${nh} L ${rx - r},${nh} Q ${rx},${nh} ${rx},${nh - r}`);
   hitEl.style.cssText=`width:${tw}px;height:${nh}px`;
   contEl.style.cssText=`width:${nw}px;height:${nh}px;overflow:hidden`;
+  // The glass rim follows the animated corner radius.
+  if (glassEdge) glassEdge.style.borderRadius = `${Math.min(rb, nh * 0.48).toFixed(1)}px`;
 
   // Same gap on the art's left as above and below it, so it sits evenly in the
   // notch; the wave gets the matching gap on the right.
@@ -602,50 +838,161 @@ function applyShape(nw,nh,rb) {
   });
 }
 
-let curW=CW(), curH=CH(), curRb=CR(), animId=null;
-applyShape(curW,curH,curRb);
+let curW=CW(), curH=CH(), curRb=CR(), curEar=EAR(), animId=null;
+applyShape(curW,curH,curRb,curEar);
 
 const easeOpen  = t => 1-Math.pow(1-t,3.2);
 const easeClose = t => t*(2-t);
 
 function animateTo(toW,toH,toRb,dur,fn) {
   if(animId) cancelAnimationFrame(animId);
+  velW=velH=velR=velE=0;
   const fw=curW, fh=curH, fr=curRb, t0=performance.now();
   (function tick(now){
     const t=Math.min(1,(now-t0)/dur), e=fn(t);
     curW=fw+(toW-fw)*e; curH=fh+(toH-fh)*e; curRb=fr+(toRb-fr)*e;
-    applyShape(curW,curH,curRb);
+    applyShape(curW,curH,curRb,curEar);
     if(t<1) animId=requestAnimationFrame(tick); else animId=null;
   })(t0);
 }
 
+// Opening and closing run on springs rather than a fixed curve. A spring keeps
+// its speed when the target changes, so hovering away mid-open turns around
+// smoothly instead of stopping dead and starting a new animation. Opening is
+// slightly underdamped, which gives the small settle at the end that makes the
+// motion feel physical; closing is critically damped, so it never wobbles.
+const SPRING_OPEN  = { hz: 2.5, zeta: 0.66 };
+const SPRING_CLOSE = { hz: 3.2, zeta: 1 };
+let velW=0, velH=0, velR=0, velE=0;
+
+// The ear (the curve into the top of the screen) rides the same spring, so it
+// opens out with the panel and comes back to the bezel curve on close.
+function springTo(toW, toH, toRb, toEar, s) {
+  if(animId) cancelAnimationFrame(animId);
+  const w = 2*Math.PI*s.hz, z = s.zeta;
+  let last = performance.now();
+  (function tick(now){
+    let left = Math.min(0.05, (now - last)/1000);
+    last = now;
+    while (left > 1e-9) {
+      const h = Math.min(0.004, left);
+      left -= h;
+      velW += (w*w*(toW   - curW  ) - 2*z*w*velW) * h; curW   += velW * h;
+      velH += (w*w*(toH   - curH  ) - 2*z*w*velH) * h; curH   += velH * h;
+      velR += (w*w*(toRb  - curRb ) - 2*z*w*velR) * h; curRb  += velR * h;
+      velE += (w*w*(toEar - curEar) - 2*z*w*velE) * h; curEar += velE * h;
+    }
+    applyShape(curW, curH, curRb, curEar);
+    const settled = Math.abs(toW-curW) < 0.2 && Math.abs(toH-curH) < 0.2 && Math.abs(toRb-curRb) < 0.2 &&
+                    Math.abs(toEar-curEar) < 0.1 &&
+                    Math.abs(velW) < 2 && Math.abs(velH) < 2 && Math.abs(velR) < 2 && Math.abs(velE) < 2;
+    if (settled) {
+      curW=toW; curH=toH; curRb=toRb; curEar=toEar; velW=velH=velR=velE=0;
+      applyShape(curW, curH, curRb, curEar);
+      animId=null;
+    } else animId=requestAnimationFrame(tick);
+  })(last);
+}
+
 // ── Open/close ────────────────────────────────────────────────────────────────
 let isOpen=false, hasMedia=false, mediaPlaying=false;
+// The charging animation drives the notch itself and swaps the panel's markup,
+// so hover keeps its hands off while it runs.
+let chargingShowing=false;
 
 function openNotch() {
   if(isOpen) return; isOpen=true;
-  svgEl.classList.add('active');
+  svgEl.classList.add('active','open');
   hitEl.classList.add('active','open');
   contEl.classList.add('open');
-  animateTo(EW(),EH(),ER(),420,easeOpen);
+  document.getElementById('pill-art-glow').classList.add('panel-open');
+  springTo(EW(),EH(),ER(),EE(),SPRING_OPEN);
   window.api?.mouseEnter();
 }
 function closeNotch() {
   if(!isOpen) return; isOpen=false;
+  svgEl.classList.remove('open');
   hitEl.classList.remove('open');
   contEl.classList.remove('open');
-  animateTo(CW(),CH(),CR(),200,easeClose);
+  document.getElementById('pill-art-glow').classList.remove('panel-open');
+  springTo(CW(),CH(),CR(),EAR(),SPRING_CLOSE);
   window.api?.mouseLeave();
 }
+
+// ── Hover to open ─────────────────────────────────────────────────────────────
+// Resting the pointer on the notch opens it. The window is click-through, so
+// the page only ever sees forwarded mouse *moves* — a pointer that stops moving
+// or leaves the window goes quiet, and a click never arrives at all. So the
+// real cursor is checked with the main process at the two moments that matter:
+// when the dwell is up, and while the notch is open.
+const HOVER_OPEN_MS  = 600;   // rest this long on the notch before it opens
+const HOVER_GRACE_MS = 220;   // leeway on the way out, so a flick past the edge
+                              // on the way to a button doesn't slam it shut
+const HOVER_POLL_MS  = 180;
+const HOVER_PAD      = 8;     // slack around the shape, in px
+
+let dwellTimer = null, graceTimer = null, watchTimer = null, openedByHover = false;
+
+function overNotch(p) {
+  if (!p) return false;
+  const r = hitEl.getBoundingClientRect();
+  return p.x >= r.left - HOVER_PAD && p.x <= r.right  + HOVER_PAD &&
+         p.y >= r.top  - HOVER_PAD && p.y <= r.bottom + HOVER_PAD;
+}
+
+function cancelHoverTimers() {
+  clearTimeout(dwellTimer); clearTimeout(graceTimer); clearInterval(watchTimer);
+  dwellTimer = graceTimer = watchTimer = null;
+}
+
+// Once it's open the pointer is watched directly: leaving the window while the
+// notch is interactive would otherwise leave it stuck open, swallowing clicks
+// along the whole top of the screen.
+function watchPointer() {
+  clearInterval(watchTimer);
+  watchTimer = setInterval(async () => {
+    if (!isOpen || !openedByHover) { clearInterval(watchTimer); watchTimer = null; return; }
+    if (overNotch(await window.api?.cursorPoint?.())) { clearTimeout(graceTimer); graceTimer = null; return; }
+    if (!graceTimer) graceTimer = setTimeout(() => { graceTimer = null; hoverClose(); }, HOVER_GRACE_MS);
+  }, HOVER_POLL_MS);
+}
+
+function hoverClose() {
+  cancelHoverTimers();
+  openedByHover = false;
+  closeNotch();
+}
+
+function hoverOpen() {
+  if (isOpen || chargingShowing) return;
+  openedByHover = true;
+  openNotch();
+  watchPointer();
+}
+
+document.addEventListener('mousemove', e => {
+  if (chargingShowing) return;
+  if (!overNotch({ x: e.clientX, y: e.clientY })) {
+    clearTimeout(dwellTimer); dwellTimer = null;
+    return;
+  }
+  clearTimeout(graceTimer); graceTimer = null;
+  if (isOpen || dwellTimer) return;
+  dwellTimer = setTimeout(async () => {
+    dwellTimer = null;
+    // The pointer may have left without another move to tell us.
+    if (overNotch(await window.api?.cursorPoint?.())) hoverOpen();
+  }, HOVER_OPEN_MS);
+});
 
 hitEl.addEventListener('click', e => {
   if(e.target.closest('.mc')) return;
   if(!hasMedia && !isOpen) return;
-  isOpen ? closeNotch() : openNotch();
+  if(isOpen) hoverClose(); else openNotch();
 });
 document.addEventListener('click', e => {
   if(!isOpen) return;
-  if(!hitEl.contains(e.target) && !contEl.contains(e.target)) closeNotch();
+  if(!hitEl.contains(e.target) && !contEl.contains(e.target)) hoverClose();
 }, {capture:true});
 
 // ── Controls ──────────────────────────────────────────────────────────────────
@@ -656,9 +1003,98 @@ function sendCmd(cmd,btn) {
   if(cmd==='pause') { mediaPlaying=false; setPlay(false); }
   window.api?.mediaCmd(cmd).catch(()=>{});
 }
+// ── Progress bar: show and scrub ──────────────────────────────────────────────
+// Players reached through Windows' media controls mostly don't tick the
+// position they report — browsers only refresh it on play, pause or a seek. So
+// the position is kept here and advanced by the clock while something is
+// playing, and only re-synced when what arrives is far enough off to be a real
+// seek or a new track rather than a stale reading.
+let trackDur = 0, scrubbing = false, holdProgressUntil = 0;
+let posSec = 0, posAt = performance.now();
+let reportedPos = null, lastTitle = null, lastPlayState = null;
+
+function setPosition(sec) {
+  posSec = Math.max(0, sec || 0);
+  posAt = performance.now();
+}
+
+function livePosition() {
+  const drift = mediaPlaying && !scrubbing ? (performance.now() - posAt) / 1000 : 0;
+  const p = posSec + drift;
+  return trackDur > 0 ? Math.min(p, trackDur) : p;
+}
+
+function tickProgress() {
+  if (scrubbing || !hasMedia) return;
+  showProgress(livePosition(), trackDur);
+}
+setInterval(tickProgress, 250);
+const progHit  = document.getElementById('m-prog-hit');
+const progFill = document.getElementById('m-prog-fill');
+const progKnob = document.getElementById('m-prog-knob');
+
+function showProgress(pos, dur) {
+  const pct = dur > 0 ? Math.min(100, Math.max(0, (pos / dur) * 100)) : 0;
+  progFill.style.width = pct.toFixed(2) + '%';
+  progKnob.style.left  = pct.toFixed(2) + '%';
+  document.getElementById('m-pos').textContent = fmtTime(Math.max(0, Math.round(pos)));
+}
+
+function seekFraction(clientX) {
+  const r = progHit.getBoundingClientRect();
+  if (r.width <= 0) return 0;
+  return Math.min(1, Math.max(0, (clientX - r.left) / r.width));
+}
+
+progHit.addEventListener('pointerdown', e => {
+  if (!trackDur) return;                    // nothing playing, or no duration
+  e.stopPropagation();
+  scrubbing = true;
+  progHit.classList.add('scrubbing');
+  progHit.setPointerCapture(e.pointerId);
+  showProgress(seekFraction(e.clientX) * trackDur, trackDur);
+});
+
+progHit.addEventListener('pointermove', e => {
+  if (!scrubbing) return;
+  showProgress(seekFraction(e.clientX) * trackDur, trackDur);
+});
+
+for (const ev of ['pointerup', 'pointercancel']) {
+  progHit.addEventListener(ev, e => {
+    if (!scrubbing) return;
+    scrubbing = false;
+    progHit.classList.remove('scrubbing');
+    if (ev === 'pointercancel') return;
+    const seconds = seekFraction(e.clientX) * trackDur;
+    setPosition(seconds);
+    showProgress(seconds, trackDur);
+    // The player reports the old position for a beat after a seek.
+    holdProgressUntil = performance.now() + 1200;
+    window.api?.mediaSeek?.(seconds).catch(()=>{});
+  });
+}
+
+document.getElementById('btn-cast').addEventListener('click',e=>{ e.stopPropagation(); flash(e.currentTarget); window.api?.openCast?.().catch(()=>{}); });
 document.getElementById('btn-play').addEventListener('click',e=>{ e.stopPropagation(); sendCmd(mediaPlaying?'pause':'play',e.currentTarget); });
 document.getElementById('btn-prev').addEventListener('click',e=>{ e.stopPropagation(); sendCmd('prev',e.currentTarget); });
 document.getElementById('btn-next').addEventListener('click',e=>{ e.stopPropagation(); sendCmd('next',e.currentTarget); });
+
+// The same animated bars as the collapsed pill, copied once into the title
+// line rather than duplicating that whole block of markup.
+const waveHost = document.getElementById('m-wave');
+let panelWaveSvg = null;
+function panelWave(on) {
+  if (!panelWaveSvg) {
+    const src = document.getElementById('pill-wave-svg');
+    if (!src) return;
+    panelWaveSvg = src.cloneNode(true);
+    panelWaveSvg.removeAttribute('id');
+    waveHost.appendChild(panelWaveSvg);
+  }
+  if (on) panelWaveSvg.unpauseAnimations(); else panelWaveSvg.pauseAnimations();
+  waveHost.classList.toggle('visible', !!on);
+}
 
 function setPlay(p) {
   document.getElementById('ico-play').style.display  = p ? 'none' : '';
@@ -667,14 +1103,6 @@ function setPlay(p) {
 function fmtTime(s) {
   s = Math.max(0,Math.floor(s||0));
   return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');
-}
-function srcInfo(s) {
-  if(!s) return{cls:'',lbl:''};
-  const l = s.toLowerCase();
-  if(l.includes('spotify'))                        return{cls:'sp',lbl:'SPOTIFY'};
-  if(l.includes('youtube'))                        return{cls:'yt',lbl:'YOUTUBE'};
-  if(l.match(/chrome|msedge|edge|firefox/))        return{cls:'yt',lbl:'BROWSER'};
-  return{cls:'br',lbl:'MEDIA'};
 }
 
 // ── 🎨 ACCENT COLOR EXTRACTION ────────────────────────────────────────────────
@@ -833,18 +1261,18 @@ async function fetchAndApplyArt(artKey, mediaMeta) {
 
 function showNoMedia() {
   document.getElementById('no-media').style.display = 'flex';
-  document.getElementById('m-art').style.visibility = 'hidden';
-  document.getElementById('m-track').style.visibility = 'hidden';
-  document.querySelector('#panel > div:last-child').style.visibility = 'hidden';
+  document.getElementById('m-head').style.visibility = 'hidden';
+  document.getElementById('m-prog-row').style.visibility = 'hidden';
+  document.getElementById('m-ctrl').style.visibility = 'hidden';
   document.getElementById('pill-art').classList.remove('visible');
   document.getElementById('pill-wave').classList.remove('visible');
   document.getElementById('pill-art-glow').style.display = 'none';
 }
 function showMedia() {
   document.getElementById('no-media').style.display = 'none';
-  document.getElementById('m-art').style.visibility = 'visible';
-  document.getElementById('m-track').style.visibility = 'visible';
-  document.querySelector('#panel > div:last-child').style.visibility = 'visible';
+  document.getElementById('m-head').style.visibility = 'visible';
+  document.getElementById('m-prog-row').style.visibility = 'visible';
+  document.getElementById('m-ctrl').style.visibility = 'visible';
 }
 
 async function poll() {
@@ -854,6 +1282,7 @@ async function poll() {
 
     if(!m || !m.title) {
       hasMedia = false; mediaPlaying = false;
+      document.getElementById('pill-wave-svg').pauseAnimations();
       setPlay(false); clearThumbnails(); showNoMedia();
       svgEl.classList.remove('active'); hitEl.classList.remove('active');
       lastArtKey = ''; currentMediaMeta = null;
@@ -864,12 +1293,32 @@ async function poll() {
     svgEl.classList.add('active'); hitEl.classList.add('active');
     showMedia();
 
-    document.getElementById('m-title').textContent  = m.title  || '—';
+    document.getElementById('m-title').textContent  = MediaTitle.simplify(m.title, m.artist) || m.title || '—';
     document.getElementById('m-artist').textContent = m.artist || m.album || '—';
-    const pct = m.dur > 0 ? Math.min(100,(m.pos/m.dur)*100).toFixed(1)+'%' : '0%';
-    document.getElementById('m-prog-fill').style.width = pct;
-    document.getElementById('m-pos').textContent = fmtTime(m.pos);
+    trackDur = m.dur || 0;
     document.getElementById('m-dur').textContent = fmtTime(m.dur);
+
+    // Take the player's position only when the player itself moved it. A
+    // frozen reading is the norm for browsers, and treating one as the truth
+    // dragged the bar back to the start every few seconds.
+    // posAge is how old that reading is; while playing, the track has moved on
+    // by that much since. Older helpers don't send it, hence the fallback.
+    const age       = m.playing ? Math.min((m.posAge || 0) / 1000, 6 * 3600) : 0;
+    const reported  = (m.pos || 0) + age;
+    const moved     = reportedPos === null || (m.pos || 0) !== reportedPos;
+    const newTrack  = lastTitle !== null && lastTitle !== m.title;
+    const nowPaused = !m.playing;
+    const resumed   = lastPlayState !== null && lastPlayState !== !!m.playing;
+    reportedPos = m.pos || 0;
+    lastTitle = m.title;
+    lastPlayState = !!m.playing;
+
+    // A scrub in flight owns the bar: the player keeps reporting the old
+    // position for a moment after a seek, which would yank it back.
+    if (!scrubbing && performance.now() > holdProgressUntil) {
+      if (moved || newTrack || resumed || nowPaused) setPosition(reported);
+      showProgress(livePosition(), trackDur);
+    }
 
     mediaPlaying = !!m.playing;
     setPlay(mediaPlaying);
@@ -877,6 +1326,7 @@ async function poll() {
     const wEl = document.getElementById('pill-wave');
     const waveSvg = document.getElementById('pill-wave-svg');
     if (mediaPlaying) waveSvg.unpauseAnimations(); else waveSvg.pauseAnimations();
+    panelWave(mediaPlaying);
 
     const pillArt = document.getElementById('pill-art');
     const pillGlow = document.getElementById('pill-art-glow');
@@ -895,12 +1345,6 @@ async function poll() {
       wEl.classList.remove('visible');
     }
 
-    const {cls,lbl} = srcInfo(m.src);
-    const badge = document.getElementById('m-badge');
-    badge.textContent = lbl;
-    badge.className   = cls;
-    badge.id          = 'm-badge';
-
     const currentKey = m.artKey || `${m.title}||${m.artist}||${m.src}`;
 
     if(currentKey !== lastArtKey) {
@@ -908,13 +1352,7 @@ async function poll() {
       currentMediaMeta = {title:m.title, artist:m.artist, src:m.src};
       clearThumbnails();
       if(artFetchTimer) clearTimeout(artFetchTimer);
-      if(m.art && m.art !== '') {
-        updateThumbnail(m.art);
-      } else {
-        artFetchTimer = setTimeout(()=>fetchAndApplyArt(currentKey,currentMediaMeta), 100);
-      }
-    } else if(m.art && m.art !== '' && !currentThumbnailUrl) {
-      updateThumbnail(m.art);
+      artFetchTimer = setTimeout(()=>fetchAndApplyArt(currentKey,currentMediaMeta), 100);
     }
 
   } catch(e) { console.warn('[Renderer] Poll error:', e); }
@@ -957,70 +1395,71 @@ setInterval(poll, 2000);
   }
   initCharging();
 
+  // SF Symbols battery glyphs, all on the same 18x9 grid: empty through full,
+  // plus the one with the bolt through it.
+  const BATTERY = {
+    empty: 'M3.2168 8.19727C2.15039 8.19727 1.31836 8.08008 0.708984 7.47656C0.111328 6.87891 0 6.04688 0 4.98047V3.19922C0 2.15039 0.111328 1.32422 0.714844 0.720703C1.3125 0.117188 2.15039 0 3.19922 0H12.4043C13.4707 0 14.3027 0.117188 14.9121 0.720703C15.5098 1.31836 15.6211 2.14453 15.6211 3.2168V4.98047C15.6211 6.04688 15.5098 6.87305 14.9121 7.47656C14.3086 8.08008 13.4707 8.19727 12.4043 8.19727H3.2168ZM3.05273 7.04883H12.5684C13.1777 7.04883 13.7461 6.9668 14.0684 6.63867C14.3965 6.31055 14.4727 5.75391 14.4727 5.14453V3.05273C14.4727 2.44336 14.3965 1.88672 14.0684 1.55859C13.7461 1.23047 13.1777 1.14844 12.5684 1.14844H3.06445C2.44922 1.14844 1.875 1.23047 1.54688 1.55859C1.22461 1.88672 1.14844 2.44922 1.14844 3.06445V5.14453C1.14844 5.75391 1.22461 6.31055 1.55273 6.63867C1.88086 6.96094 2.44922 7.04883 3.05273 7.04883ZM16.4766 5.68359V2.50781C16.9629 2.53711 17.6133 3.16406 17.6133 4.0957C17.6133 5.0332 16.9629 5.6543 16.4766 5.68359Z',
+    p25:   'M3.2168 8.19727C2.15039 8.19727 1.31836 8.08008 0.708984 7.47656C0.111328 6.87891 0 6.04688 0 4.98047V3.19922C0 2.15039 0.111328 1.32422 0.714844 0.720703C1.3125 0.117188 2.15039 0 3.19922 0H12.4043C13.4707 0 14.3027 0.117188 14.9121 0.720703C15.5098 1.31836 15.6211 2.14453 15.6211 3.2168V4.98047C15.6211 6.04688 15.5098 6.87305 14.9121 7.47656C14.3086 8.08008 13.4707 8.19727 12.4043 8.19727H3.2168ZM3.05273 7.04883H12.5684C13.1777 7.04883 13.7461 6.9668 14.0684 6.63867C14.3965 6.31055 14.4727 5.75391 14.4727 5.14453V3.05273C14.4727 2.44336 14.3965 1.88672 14.0684 1.55859C13.7461 1.23047 13.1777 1.14844 12.5684 1.14844H3.06445C2.44922 1.14844 1.875 1.23047 1.54688 1.55859C1.22461 1.88672 1.14844 2.44922 1.14844 3.06445V5.14453C1.14844 5.75391 1.22461 6.31055 1.55273 6.63867C1.88086 6.96094 2.44922 7.04883 3.05273 7.04883ZM2.82422 6.31055C2.46094 6.31055 2.24414 6.25781 2.0918 6.10547C1.94531 5.95312 1.88672 5.74219 1.88672 5.37891V2.83008C1.88672 2.46094 1.94531 2.23828 2.0918 2.08594C2.24414 1.93945 2.46094 1.88672 2.83594 1.88672H4.02539C4.38867 1.88672 4.60547 1.93945 4.75195 2.0918C4.9043 2.23828 4.96289 2.45508 4.96289 2.81836V5.37891C4.96289 5.73633 4.9043 5.95312 4.75195 6.10547C4.60547 6.25781 4.38867 6.31055 4.02539 6.31055H2.82422ZM16.4766 5.68359V2.50781C16.9629 2.53711 17.6133 3.16406 17.6133 4.0957C17.6133 5.0332 16.9629 5.6543 16.4766 5.68359Z',
+    p50:   'M3.2168 8.19727C2.15039 8.19727 1.31836 8.08008 0.708984 7.47656C0.111328 6.87891 0 6.04688 0 4.98047V3.19922C0 2.15039 0.111328 1.32422 0.714844 0.720703C1.3125 0.117188 2.15039 0 3.19922 0H12.4043C13.4707 0 14.3027 0.117188 14.9121 0.720703C15.5098 1.31836 15.6211 2.14453 15.6211 3.2168V4.98047C15.6211 6.04688 15.5098 6.87305 14.9121 7.47656C14.3086 8.08008 13.4707 8.19727 12.4043 8.19727H3.2168ZM3.05273 7.04883H12.5684C13.1777 7.04883 13.7461 6.9668 14.0684 6.63867C14.3965 6.31055 14.4727 5.75391 14.4727 5.14453V3.05273C14.4727 2.44336 14.3965 1.88672 14.0684 1.55859C13.7461 1.23047 13.1777 1.14844 12.5684 1.14844H3.06445C2.44922 1.14844 1.875 1.23047 1.54688 1.55859C1.22461 1.88672 1.14844 2.44922 1.14844 3.06445V5.14453C1.14844 5.75391 1.22461 6.31055 1.55273 6.63867C1.88086 6.96094 2.44922 7.04883 3.05273 7.04883ZM2.82422 6.31055C2.46094 6.31055 2.24414 6.25781 2.0918 6.10547C1.94531 5.95312 1.88672 5.74219 1.88672 5.37891V2.83008C1.88672 2.46094 1.94531 2.23828 2.0918 2.08594C2.24414 1.93945 2.46094 1.88672 2.83594 1.88672H6.87305C7.23633 1.88672 7.45312 1.93945 7.60547 2.0918C7.75195 2.23828 7.81055 2.45508 7.81055 2.81836V5.37891C7.81055 5.73633 7.75195 5.95312 7.60547 6.10547C7.45312 6.25781 7.23633 6.31055 6.87305 6.31055H2.82422ZM16.4766 5.68359V2.50781C16.9629 2.53711 17.6133 3.16406 17.6133 4.0957C17.6133 5.0332 16.9629 5.6543 16.4766 5.68359Z',
+    p75:   'M3.2168 8.19727C2.15039 8.19727 1.31836 8.08008 0.708984 7.47656C0.111328 6.87891 0 6.04688 0 4.98047V3.19922C0 2.15039 0.111328 1.32422 0.714844 0.720703C1.3125 0.117188 2.15039 0 3.19922 0H12.4043C13.4707 0 14.3027 0.117188 14.9121 0.720703C15.5098 1.31836 15.6211 2.14453 15.6211 3.2168V4.98047C15.6211 6.04688 15.5098 6.87305 14.9121 7.47656C14.3086 8.08008 13.4707 8.19727 12.4043 8.19727H3.2168ZM3.05273 7.04883H12.5684C13.1777 7.04883 13.7461 6.9668 14.0684 6.63867C14.3965 6.31055 14.4727 5.75391 14.4727 5.14453V3.05273C14.4727 2.44336 14.3965 1.88672 14.0684 1.55859C13.7461 1.23047 13.1777 1.14844 12.5684 1.14844H3.06445C2.44922 1.14844 1.875 1.23047 1.54688 1.55859C1.22461 1.88672 1.14844 2.44922 1.14844 3.06445V5.14453C1.14844 5.75391 1.22461 6.31055 1.55273 6.63867C1.88086 6.96094 2.44922 7.04883 3.05273 7.04883ZM2.82422 6.31055C2.46094 6.31055 2.24414 6.25781 2.0918 6.10547C1.94531 5.95312 1.88672 5.74219 1.88672 5.37891V2.83008C1.88672 2.46094 1.94531 2.23828 2.0918 2.08594C2.24414 1.93945 2.46094 1.88672 2.83594 1.88672H9.83789C10.2012 1.88672 10.418 1.93945 10.5703 2.0918C10.7168 2.23828 10.7754 2.45508 10.7754 2.81836V5.37891C10.7754 5.73633 10.7168 5.95312 10.5645 6.10547C10.418 6.25781 10.2012 6.31055 9.83789 6.31055H2.82422ZM16.4766 5.68359V2.50781C16.9629 2.53711 17.6133 3.16406 17.6133 4.0957C17.6133 5.0332 16.9629 5.6543 16.4766 5.68359Z',
+    full:  'M3.2168 8.19727C2.15039 8.19727 1.31836 8.08008 0.708984 7.47656C0.111328 6.87891 0 6.04688 0 4.98047V3.19922C0 2.15039 0.111328 1.32422 0.714844 0.720703C1.3125 0.117188 2.15039 0 3.19922 0H12.4043C13.4707 0 14.3027 0.117188 14.9121 0.720703C15.5098 1.31836 15.6211 2.14453 15.6211 3.2168V4.98047C15.6211 6.04688 15.5098 6.87305 14.9121 7.47656C14.3086 8.08008 13.4707 8.19727 12.4043 8.19727H3.2168ZM3.05273 7.04883H12.5684C13.1777 7.04883 13.7461 6.9668 14.0684 6.63867C14.3965 6.31055 14.4727 5.75391 14.4727 5.14453V3.05273C14.4727 2.44336 14.3965 1.88672 14.0684 1.55859C13.7461 1.23047 13.1777 1.14844 12.5684 1.14844H3.06445C2.44922 1.14844 1.875 1.23047 1.54688 1.55859C1.22461 1.88672 1.14844 2.44922 1.14844 3.06445V5.14453C1.14844 5.75391 1.22461 6.31055 1.55273 6.63867C1.88086 6.96094 2.44922 7.04883 3.05273 7.04883ZM2.82422 6.31055C2.46094 6.31055 2.24414 6.25781 2.0918 6.10547C1.94531 5.95312 1.88672 5.74219 1.88672 5.37891V2.83008C1.88672 2.46094 1.94531 2.23828 2.0918 2.08594C2.24414 1.93945 2.46094 1.88672 2.83594 1.88672H12.7969C13.1602 1.88672 13.377 1.93945 13.5293 2.0918C13.6816 2.23828 13.7344 2.45508 13.7344 2.81836V5.37891C13.7344 5.73633 13.6816 5.95312 13.5293 6.10547C13.377 6.25781 13.1602 6.31055 12.7969 6.31055H2.82422ZM16.4766 5.68359V2.50781C16.9629 2.53711 17.6133 3.16406 17.6133 4.0957C17.6133 5.0332 16.9629 5.6543 16.4766 5.68359Z',
+    bolt:  'M3.2168 8.29102C2.15039 8.29102 1.31836 8.17383 0.708984 7.57031C0.111328 6.97266 0 6.14062 0 5.07422V3.29297C0 2.24414 0.111328 1.41797 0.714844 0.814453C1.3125 0.210938 2.15039 0.09375 3.19922 0.09375H7.77539L6.84375 1.24219H3.06445C2.44922 1.24219 1.875 1.32422 1.54688 1.65234C1.22461 1.98047 1.14844 2.54297 1.14844 3.1582V5.23828C1.14844 5.84766 1.22461 6.4043 1.55273 6.73242C1.88086 7.05469 2.44922 7.14258 3.05273 7.14258H5.85352C5.6543 7.66406 5.61328 7.93359 5.7832 8.29102H3.2168ZM8.00391 8.29102L8.93555 7.14258H12.5684C13.1777 7.14258 13.7461 7.06055 14.0684 6.73242C14.3965 6.4043 14.4727 5.84766 14.4727 5.23828V3.14648C14.4727 2.53711 14.3965 1.98047 14.0684 1.65234C13.7461 1.32422 13.1777 1.24219 12.5684 1.24219H9.93164C10.1191 0.703125 10.1602 0.433594 9.99609 0.09375H12.4043C13.4707 0.09375 14.3027 0.210938 14.9121 0.814453C15.5098 1.41211 15.6211 2.23828 15.6211 3.31055V5.07422C15.6211 6.14062 15.5098 6.9668 14.9121 7.57031C14.3086 8.17383 13.4707 8.29102 12.4043 8.29102H8.00391ZM5.31445 4.63477C5.31445 4.55273 5.35547 4.4707 5.41992 4.38281L8.67773 0.333984C8.94727 0 9.38672 0.234375 9.23438 0.644531L8.17969 3.46289H10.1602C10.3301 3.46289 10.459 3.58008 10.459 3.74414C10.459 3.83203 10.4238 3.91406 10.3594 3.99609L7.0957 8.05078C6.82617 8.37891 6.38672 8.15039 6.53906 7.74023L7.59375 4.92188H5.61328C5.44922 4.92188 5.31445 4.79883 5.31445 4.63477ZM2.83008 6.4043C2.4668 6.4043 2.25 6.35156 2.09766 6.19922C1.94531 6.04688 1.88672 5.83594 1.88672 5.47266V2.92383C1.88672 2.55469 1.94531 2.33203 2.09766 2.17969C2.24414 2.0332 2.4668 1.98047 2.8418 1.98047H6.25195L4.75195 3.85547C4.57617 4.07812 4.46484 4.35352 4.46484 4.63477C4.46484 5.20898 4.89844 5.6543 5.4375 5.70117H6.12891L5.86523 6.4043H2.83008ZM9.5332 6.4043L11.0332 4.52344C11.209 4.30664 11.3203 4.03125 11.3203 3.74414C11.3203 3.17578 10.8867 2.73047 10.3477 2.68359H9.65625L9.91406 1.98047H12.8027C13.166 1.98047 13.3828 2.0332 13.5352 2.18555C13.6816 2.33203 13.7402 2.54883 13.7402 2.91211V5.47266C13.7402 5.83008 13.6816 6.04688 13.5293 6.19922C13.3828 6.35156 13.166 6.4043 12.8027 6.4043H9.5332ZM16.4766 5.77734V2.60156C16.9629 2.63086 17.6133 3.25781 17.6133 4.18945C17.6133 5.12695 16.9629 5.74805 16.4766 5.77734Z',
+  };
+
+  function batteryGlyph(level) {
+    if (!(level >= 0)) return BATTERY.full;
+    if (level >= 0.95) return BATTERY.full;
+    if (level >= 0.7)  return BATTERY.p75;
+    if (level >= 0.45) return BATTERY.p50;
+    if (level >= 0.15) return BATTERY.p25;
+    return BATTERY.empty;
+  }
+
+  // Chromium knows the charge level even though the main process doesn't.
+  let batteryStatus = null;
+  navigator.getBattery?.().then(b => {
+    batteryStatus = b;
+    for (const ev of ['levelchange', 'chargingchange']) b.addEventListener(ev, () => {});
+  }).catch(() => {});
+
+  // Plugged in: the notch swells into a short pill showing the charge, holds,
+  // then settles back. It has its own layer — the old version rewrote the
+  // media panel's markup and rebound only some of its buttons, which left the
+  // rest of the controls dead for the rest of the session.
+  const CHARGE_W = 212, CHARGE_H = 46, CHARGE_R = 20, CHARGE_HOLD_MS = 2400;
+
   function playChargingNotch() {
-    if (isOpen) return;
+    if (isOpen || chargingShowing) return;
+    chargingShowing = true;
 
-    // Animate notch open
+    const level = batteryStatus ? batteryStatus.level : -1;
+    const fill  = document.getElementById('charge-bar-fill');
+    document.getElementById('charge-glyph-path').setAttribute('d', BATTERY.bolt);
+    document.getElementById('charge-pct').textContent = level >= 0 ? Math.round(level * 100) + '%' : 'Charging';
+    fill.style.width = '0px';
+
     svgEl.classList.add('active');
-animateTo(280, CH() + 2, 14, 420, easeOpen);
-    // Inject charging UI into panel temporarily
-    const panel = document.getElementById('panel');
-    const originalHTML = panel.innerHTML;
-    panel.innerHTML = `
-  <div style="display:flex; align-items:center; justify-content:space-between; 
-    width:100%; padding:0 12px; box-sizing:border-box; height:100%;">
-    
-    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" style="filter: drop-shadow(0 0 2px rgba(52,217,98,0.4))">
-      <path d="M13 2L4 14H11L10 22L19 10H12L13 2Z" fill="#34d962"/>
-    </svg>
+    contEl.classList.add('charging');
+    document.getElementById('pill-art-glow').classList.add('charging');
+    springTo(CHARGE_W, CHARGE_H, CHARGE_R, EAR(), SPRING_OPEN);
 
-    <span style="font-size:11px; font-weight:500; color:#FFFFFF; 
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica;
-      letter-spacing:-0.01em; opacity:0.9">Charging</span>
+    // Second frame, so the line grows from nothing instead of starting full.
+    const CHARGE_BAR_MAX = 56;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      fill.style.width = (level >= 0 ? Math.max(6, level * CHARGE_BAR_MAX) : CHARGE_BAR_MAX).toFixed(0) + 'px';
+    }));
 
-    <div style="display:flex; align-items:center; position:relative">
-      <div style="width:25px; height:12px; border-radius:3.5px; 
-        border: 1px solid rgba(255,255,255,0.2); padding:1.5px; 
-        display:flex; align-items:center; background: rgba(0,0,0,0.1)">
-        
-        <div style="width:100%; height:100%; background:#34d962; 
-          border-radius:1.5px; box-shadow: 0 0 5px rgba(52,217,98,0.5)"></div>
-      </div>
-      
-      <div style="width:1.5px; height:4px; background:rgba(255,255,255,0.25); 
-        border-radius:0 1px 1px 0; margin-left:1px"></div>
-    </div>
-  </div>
-`;
-
-    contEl.classList.add('open');
-
-    // Animate the green bar filling up
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        const fill = document.getElementById('charge-bar-fill');
-        if (fill) fill.style.width = '100%';
-      });
-    });
-
-    // Auto close after 3 seconds
     setTimeout(() => {
-      contEl.classList.remove('open');
-      animateTo(CW(), CH(), CR(), 200, easeClose);
-      svgEl.classList.remove('active');
-
+      contEl.classList.remove('charging');
+      springTo(CW(), CH(), CR(), EAR(), SPRING_CLOSE);
       setTimeout(() => {
-        panel.innerHTML = originalHTML;
-        // Re-bind control buttons after restoring HTML
-        document.getElementById('btn-play').addEventListener('click', e => { e.stopPropagation(); sendCmd(mediaPlaying ? 'pause' : 'play', e.currentTarget); });
-        document.getElementById('btn-prev').addEventListener('click', e => { e.stopPropagation(); sendCmd('prev', e.currentTarget); });
-        document.getElementById('btn-next').addEventListener('click', e => { e.stopPropagation(); sendCmd('next', e.currentTarget); });
-      }, 250);
-    }, 3000);
+        if (!hasMedia) svgEl.classList.remove('active');
+        document.getElementById('pill-art-glow').classList.remove('charging');
+        chargingShowing = false;
+      }, 340);
+    }, CHARGE_HOLD_MS);
   }
 })();
-
-  initCharging();
 })();
 </script>
 </body>
