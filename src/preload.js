@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('api', {
   mediaCmd:    (cmd)         => ipcRenderer.invoke('media-cmd', cmd),
   mediaSeek:   (seconds)     => ipcRenderer.invoke('media-seek', seconds),
   openCast:    ()            => ipcRenderer.invoke('open-cast'),
+  desktopShot: ()            => ipcRenderer.invoke('desktop-shot'),
   mediaPlay:   ()            => ipcRenderer.invoke('media-cmd', 'play'),
   mediaPause:  ()            => ipcRenderer.invoke('media-cmd', 'pause'),
   mediaNext:   ()            => ipcRenderer.invoke('media-cmd', 'next'),

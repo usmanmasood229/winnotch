@@ -248,30 +248,54 @@ function helperShot() {
   });
 }
 
+// The notch sits on top of everything, so a full-screen grab catches the notch
+// itself — and since the glass samples the screen exactly where the panel is,
+// it ends up refracting a picture of itself and comes out black. The lid blur
+// has the same problem for the same reason. Windows can leave a window out of
+// captures altogether; Electron exposes that as content protection. It's held
+// only for the length of the grab, so a screen recording loses the notch for a
+// frame rather than for good.
+const CAPTURE_SETTLE_MS = 16;   // one frame, for the compositor to drop them
+
+async function withoutOverlays(fn) {
+  const hidden = [win, blurWin].filter(w => w && !w.isDestroyed() && w.isVisible());
+  hidden.forEach(w => w.setContentProtection(true));
+  try {
+    if (hidden.length) await new Promise(r => setTimeout(r, CAPTURE_SETTLE_MS));
+    return await fn();
+  } finally {
+    hidden.forEach(w => { if (!w.isDestroyed()) w.setContentProtection(false); });
+  }
+}
+
 async function captureDesktop() {
   if (capturing) return null;
   capturing = true;
   try {
-    const b64 = await helperShot();
-    if (b64) return 'data:image/jpeg;base64,' + b64;
-    const display = getPrimary();
-    const sources = await desktopCapturer.getSources({
-      types: ['screen'],
-      thumbnailSize: {
-        width:  Math.round(display.bounds.width  / 2),
-        height: Math.round(display.bounds.height / 2),
-      },
-    });
-    const src = sources.find(s => s.display_id === String(display.id)) || sources[0];
-    // JPEG, not PNG: a fraction of the size and encode time, and it's about to
-    // be blurred, so compression artefacts never show.
-    return src ? 'data:image/jpeg;base64,' + src.thumbnail.toJPEG(90).toString('base64') : null;
+    return await withoutOverlays(() => grabScreen());
   } catch (e) {
     console.log('[WinNotch] desktop capture failed:', e.message);
     return null;
   } finally {
     capturing = false;
   }
+}
+
+async function grabScreen() {
+  const b64 = await helperShot();
+  if (b64) return 'data:image/jpeg;base64,' + b64;
+  const display = getPrimary();
+  const sources = await desktopCapturer.getSources({
+    types: ['screen'],
+    thumbnailSize: {
+      width:  Math.round(display.bounds.width  / 2),
+      height: Math.round(display.bounds.height / 2),
+    },
+  });
+  const src = sources.find(s => s.display_id === String(display.id)) || sources[0];
+  // JPEG, not PNG: a fraction of the size and encode time, and it's about to
+  // be blurred, so compression artefacts never show.
+  return src ? 'data:image/jpeg;base64,' + src.thumbnail.toJPEG(90).toString('base64') : null;
 }
 
 // The hinge angle is derived from the difference between two accelerometers,
@@ -628,6 +652,13 @@ ipcMain.handle('get-art', async (_, artKey, meta) => {
 ipcMain.handle('media-cmd', (_, cmd) => {
   if (process.platform !== 'win32') return false;
   return sendHelperCommand(MEDIA_CMDS.has(cmd) ? cmd : 'toggle');
+});
+
+// The notch's glass refracts the desktop, and a transparent window can't read
+// what's behind it, so the page asks for a snapshot as the panel opens. Same
+// grab the lid effect uses: the native helper, tens of milliseconds.
+ipcMain.handle('desktop-shot', async () => {
+  try { return await captureDesktop(); } catch (_) { return null; }
 });
 
 // Screen share: Windows puts casting behind Win+K, and there's no API for it,

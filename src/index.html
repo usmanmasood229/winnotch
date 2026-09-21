@@ -15,7 +15,7 @@
   --notch-w:   200px;
   --notch-h:   29px;
   --notch-ear: 9px;    /* closed: the curve into the screen edge */
-  --panel-ear: 16px;   /* open: a wider sweep into the top corners */
+  --panel-ear: 26px;   /* open: a wider sweep into the top corners */
   --notch-rb:  10px;
   --panel-w:   310px;
   --panel-h:   142px;
@@ -78,18 +78,17 @@ html,body {
 #notch-body { fill:#000; }
 #notch-svg.open #notch-body { fill:url(#glass-fill); }
 
-/* ── Glass depth, open only ──
-   Closed, the notch is flat black so it passes for bezel. The depth only
-   appears once the panel is open. */
+/* ── Glass depth ──
+   Never drawn now: closed, the notch is flat black so it passes for bezel, and
+   open, the refracting pane draws the depth and the rim itself. */
 #notch-glass   { display:none; }
-#notch-svg.open #notch-glass { display:block; }
 /* Only the light along the bottom edge. A dark layer over the top of the
    panel fill would have cancelled out the fade to transparent. */
 #glass-floor-l { fill:url(#glass-floor); opacity:.85; }
 /* A hairline along the bottom edge and its two corners, where the panel meets
    the desktop showing through. Open only. */
 #notch-edge { fill:none; stroke:url(#edge-grad); stroke-width:1; opacity:0; }
-#notch-svg.open #notch-edge { opacity:1; }
+#notch-svg.open #notch-edge { opacity:0; }
 
 /* Hit zone */
 #notch-hit {
@@ -221,6 +220,44 @@ html,body {
   transition: color .4s ease;
 }
 
+/* ── Refracting glass ──
+   @ybouane/liquidglass refracts the DOM inside its root, and it never captures
+   the root itself — so the desktop goes in as an <img> child, and #glass-pane
+   is the pane of glass laid over it. Both sit under everything #panel draws:
+   z-index 0, not 1, because #panel is positioned at z-index auto and a positive
+   z-index here would paint the glass over the transport buttons. */
+#glass-root {
+  position:absolute; inset:0;
+  z-index:0; pointer-events:none;
+  overflow:hidden;              /* keeps the snapshot inside the panel's shape */
+  opacity:0;
+  transition:opacity 180ms ease;
+}
+#notch-content.open #glass-root { opacity:1; }
+
+/* The desktop snapshot, shifted so the pixel under the panel is the pixel that
+   was really there. Never seen raw: #glass-tint blacks out the top of it and
+   the pane covers the whole panel. */
+#glass-bg { position:absolute; top:0; left:0; }
+
+/* The panel body, but inside the glass root so the shader refracts it along
+   with the desktop. Solid black down to 80%, then clearing over the last
+   fifth, so the bottom edge is the only part that reads as glass. */
+#glass-tint {
+  position:absolute; inset:0;
+  background:linear-gradient(to bottom,
+    #000 0%, #000 80%, rgba(5,5,7,0) 100%);
+}
+
+/* The pane covers the whole panel: its rounded-rect mask is what gives the
+   glass its shape, so a smaller pane would leave the snapshot showing at the
+   corners. The glass only *looks* like a bottom edge because everything above
+   it refracts to black.
+   It starts above the panel because the shader rounds all four corners, and the
+   notch hangs off the top bezel — square up there. Overshooting the top puts
+   those two corners outside #glass-root, which clips them away. */
+#glass-pane { position:absolute; left:0; right:0; bottom:0; top:-60px; }
+
 /* ── Liquid glass on the lower edge ──
    Light catching the thickness of the glass: hairline rims just inside the
    edge, and a 45-degree streak that pools in the two bottom corners. Masked
@@ -231,16 +268,15 @@ html,body {
   z-index:4; pointer-events:none;
   opacity:0;
   transition:opacity 220ms ease;
-  box-shadow:
-    inset 2px -2px 1px -1px rgba(255,255,255,.30),
-    inset -2px 2px 1px -1px rgba(255,255,255,.30),
-    inset 6px -6px 1px -6px rgba(255,255,255,.20),
-    inset -6px 6px 1px -6px rgba(255,255,255,.20),
-    inset 0 0 2px rgba(0,0,0,.55);
-  -webkit-mask-image:linear-gradient(to bottom, transparent 30%, #000 85%);
-  mask-image:linear-gradient(to bottom, transparent 30%, #000 85%);
+  /* A white hairline along the bottom lip, following the rounded corners.
+     Masked off above so it never shows against the black part of the panel. */
+  box-shadow: inset 0 -1px 0 rgba(255,255,255,.28);
+  -webkit-mask-image:linear-gradient(to bottom, transparent 58%, #000 86%);
+  mask-image:linear-gradient(to bottom, transparent 58%, #000 86%);
 }
-#notch-content.open #glass-edge { opacity:1; }
+/* Off when open: the shader draws the bottom rim itself (edgeHighlight), and
+   having this one as well put two hairlines at slightly different radii. */
+#notch-content.open #glass-edge { opacity:0; }
 #glass-edge:before {
   content:''; position:absolute; inset:4px;
   border-radius:inherit;
@@ -501,9 +537,14 @@ html,body {
   width:auto;
   pointer-events:none;
 }
-/* Shuffle and output sit a step back from the transport controls. */
+/* Shuffle and output sit a step back from the transport controls — dimmer,
+   but the same weight on screen, so they're sized by height and left to keep
+   their own proportions like the rest. */
 .mc.sm { color:rgba(255,255,255,.5); }
-.mc.sm svg { width:15px; height:15px; }
+/* Needs to be spelled out: .mc.sm and .mc:hover have the same specificity, and
+   .mc.sm comes later, so it would otherwise win and stay dim on hover. */
+.mc.sm:hover { color:#fff; }
+.mc.sm svg { height:16px; width:auto; }
 /* No disc behind the play/pause glyph — just the mark itself, bigger and
    brighter than its neighbours, the way the transport controls are drawn on
    iOS. */
@@ -665,6 +706,11 @@ html,body {
 <div id="notch-hit"></div>
 
 <div id="notch-content">
+  <div id="glass-root">
+    <img id="glass-bg" alt="">
+    <div id="glass-tint"></div>
+    <div id="glass-pane"></div>
+  </div>
   <div id="glass-edge"></div>
   <div id="charge">
     <svg id="charge-glyph" viewBox="0 0 17.62 8.39" fill="currentColor"><path id="charge-glyph-path"/></svg>
@@ -802,6 +848,7 @@ function applyShape(nw,nh,rb,ear) {
   contEl.style.cssText=`width:${nw}px;height:${nh}px;overflow:hidden`;
   // The glass rim follows the animated corner radius.
   if (glassEdge) glassEdge.style.borderRadius = `${Math.min(rb, nh * 0.48).toFixed(1)}px`;
+  drawGlass(nw, nh, rb);
 
   // Same gap on the art's left as above and below it, so it sits evenly in the
   // notch; the wave gets the matching gap on the right.
@@ -836,6 +883,43 @@ function applyShape(nw,nh,rb,ear) {
     transform:    'none',
     borderRadius: thumbRadius
   });
+}
+
+// ── Refracting glass ──────────────────────────────────────────────────────────
+// The shader lives in @ybouane/liquidglass; see the module script at the end of
+// the file for the wiring. All this part does is keep the pane sitting on the
+// panel's bottom edge and hand it a fresh desktop snapshot as the panel opens.
+const glassRootEl = document.getElementById('glass-root');
+const glassBgEl   = document.getElementById('glass-bg');
+let glassShotPending = false;
+
+function drawGlass(nw, nh, rb) {
+  // The window sits at the top of the display and spans its width, so the
+  // panel's offset in the page is also its offset on the desktop. Shifting the
+  // snapshot back by that much lines it up with what's really behind.
+  const radius = Math.min(rb, nh * 0.48);
+  glassBgEl.style.left = `${-((innerWidth - nw) / 2)}px`;
+  glassBgEl.style.width = `${innerWidth}px`;
+  glassBgEl.style.height = `${screen.height}px`;
+  // Bottom two corners only: the top of the notch is flush with the bezel.
+  glassRootEl.style.borderRadius = `0 0 ${radius.toFixed(1)}px ${radius.toFixed(1)}px`;
+  window.glassRefresh?.(radius);
+}
+
+async function armGlass() {
+  if (glassShotPending) return;
+  glassShotPending = true;
+  try {
+    const dataUrl = await window.api?.desktopShot?.();
+    if (!dataUrl) return;
+    glassBgEl.src = dataUrl;
+    await glassBgEl.decode();
+    window.glassChanged?.(glassBgEl);
+  } catch (e) {
+    console.log('[notch] glass snapshot failed:', e.message);
+  } finally {
+    glassShotPending = false;
+  }
 }
 
 let curW=CW(), curH=CH(), curRb=CR(), curEar=EAR(), animId=null;
@@ -917,6 +1001,9 @@ function closeNotch() {
   document.getElementById('pill-art-glow').classList.remove('panel-open');
   springTo(CW(),CH(),CR(),EAR(),SPRING_CLOSE);
   window.api?.mouseLeave();
+  // The snapshot is only good for this one opening; the desktop moves on. The
+  // pane fades out with #glass-root, so it just needs the stale shot dropped.
+  setTimeout(() => { if (!isOpen) glassBgEl.removeAttribute('src'); }, 400);
 }
 
 // ── Hover to open ─────────────────────────────────────────────────────────────
@@ -978,6 +1065,10 @@ document.addEventListener('mousemove', e => {
   }
   clearTimeout(graceTimer); graceTimer = null;
   if (isOpen || dwellTimer) return;
+  // Grab the desktop now, while the notch is still small: by the time the
+  // dwell is up the glass has something to refract, and the shot doesn't
+  // contain the panel it's about to sit under.
+  armGlass();
   dwellTimer = setTimeout(async () => {
     dwellTimer = null;
     // The pointer may have left without another move to tell us.
@@ -1461,6 +1552,53 @@ setInterval(poll, 2000);
   }
 })();
 })();
+</script>
+
+<!-- ── Liquid glass ──
+     The real @ybouane/liquidglass, not a port. It needs a module script, so it
+     lives here rather than in the main one above and talks to it through two
+     functions on window. Init is async and costs a beat, so it runs once at
+     startup and the pane is simply reconfigured from then on. -->
+<script type="module">
+import { LiquidGlass } from '../node_modules/@ybouane/liquidglass/dist/index.js';
+
+const root = document.getElementById('glass-root');
+const pane = document.getElementById('glass-pane');
+
+// The panel's own look: a dark frosted edge rather than the showcase's bright
+// one, because it hangs off a black bezel and sits over whatever is on screen.
+const CONFIG = {
+  blurAmount:  0.35,   // frosted, so the glass isn't quite clear
+  refraction:  0.69,
+  edgeHighlight: 0.2,  // the one white hairline round the bottom lip
+  brightness: -0.1,
+  cornerRadius: 30,
+  zRadius:      40,
+  shadowOpacity: 0,    // the notch draws its own shadow
+};
+
+pane.dataset.config = JSON.stringify(CONFIG);
+
+let instance = null;
+try {
+  instance = await LiquidGlass.init({ root, glassElements: [pane] });
+} catch (e) {
+  console.log('[notch] liquid glass unavailable:', e.message);
+}
+
+// Called as the panel springs: the corner radius follows the animated shape.
+window.glassRefresh = (radius) => {
+  if (!instance) return;
+  const r = Math.round(radius);
+  if (r !== CONFIG.cornerRadius) {
+    CONFIG.cornerRadius = r;
+    pane.dataset.config = JSON.stringify(CONFIG);
+  }
+  instance.markChanged();
+};
+
+// Called when a fresh desktop snapshot has decoded into the <img>.
+window.glassChanged = (el) => instance?.markChanged(el);
 </script>
 </body>
 </html>

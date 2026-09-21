@@ -1,12 +1,12 @@
 {
   "name": "winnotch",
-  "version": "7.0.0",
+  "version": "7.1.0",
   "description": "WinNotch — Dynamic Island for Windows",
   "main": "src/main.js",
   "scripts": {
     "prestart": "node scripts/build-helper.js",
     "start": "electron .",
-    "test": "node --test test/lid-motion.test.js",
+    "test": "node --test test/lid-motion.test.js test/media-title.test.js",
     "prebuild": "node scripts/build-helper.js",
     "build": "electron-builder --win --x64"
   },
@@ -44,6 +44,7 @@
     ]
   },
   "dependencies": {
+    "@ybouane/liquidglass": "^1.0.3",
     "electron-store": "^11.0.2",
     "yt-search": "^2.13.1"
   }
