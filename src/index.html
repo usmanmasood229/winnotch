@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' data: blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>WinNotch — Vibrant Wave Colors</title>
 <style>
@@ -19,8 +20,14 @@
   --notch-rb:  10px;
   --panel-w:   310px;
   --panel-h:   142px;
-  --panel-rb:  30px;
+  /* The agents view carries two cards of text side by side, so it opens wider
+     than the player does rather than truncating everything to nothing. */
+  --music-h:   178px;   /* the player's own height plus the header strip */
+  --agents-w:  660px;
+  --agents-h:  258px;
+  --panel-rb:  21px;
   --font: 'SF Pro Display', system-ui, sans-serif;
+  --mono-font: 'Cascadia Mono', Consolas, ui-monospace, monospace;
   --green: #34d962;
   --w100: #fff;
   --w92:  rgba(255,255,255,.92);
@@ -319,6 +326,702 @@ html,body {
   font-size:13px; font-weight:600; color:#fff;
   letter-spacing:-.01em; font-variant-numeric:tabular-nums;
 }
+
+/* ── Claude Code agents ──
+   The collapsed pill carries a dot per running agent, and the open panel swaps
+   the player for the list while any are working. Colour is per agent type, so
+   the same kind of worker always reads the same at a glance. */
+/* ── Finished ──
+   A wash of green climbing from the bottom edge and fading out. It sits above
+   the panel's own fill but below its contents, and never takes a click. */
+#done-flash {
+  position:absolute; inset:0; z-index:5;
+  pointer-events:none; opacity:0;
+  overflow:hidden;          /* the wash must not spill past the rounded corners */
+}
+/* A pool of light welling up from the bottom edge. It fades in and out in place
+   rather than sliding, which reads calmer. */
+#done-flash:after {
+  content:''; position:absolute; inset:0;
+  background:radial-gradient(125% 95% at 50% 114%,
+    rgba(52,211,153,.62) 0%,
+    rgba(52,211,153,.26) 38%,
+    rgba(52,211,153,.07) 62%,
+    rgba(52,211,153,0) 80%);
+}
+#done-flash.go { animation:donefade 2600ms ease-in-out 1; }
+@keyframes donefade {
+  0%   { opacity:0; }
+  30%  { opacity:1; }
+  68%  { opacity:1; }
+  100% { opacity:0; }
+}
+
+/* ── Waiting on you, from the outside ──
+   The same wash as the finished one, in amber and breathing instead of a single
+   pass, because this one is not an event: it stays until you answer. */
+#perm-glow {
+  position:absolute; inset:0; z-index:5;
+  pointer-events:none; opacity:0;
+  overflow:hidden;
+  transition:opacity 260ms ease;
+}
+#perm-glow:after {
+  content:''; position:absolute; inset:0;
+  background:radial-gradient(125% 95% at 50% 114%,
+    rgba(245,165,36,.62) 0%,
+    rgba(245,165,36,.26) 38%,
+    rgba(245,165,36,.07) 62%,
+    rgba(245,165,36,0) 80%);
+  animation:permBreathe 1.9s ease-in-out infinite;
+}
+/* The breathing runs on an element that is invisible unless .perm. Paused, not
+   removed, so nothing jumps when it comes back. */
+#perm-glow.idle:after { animation-play-state: paused; }
+/* Only while shut. Open, the card itself is the signal, and the wash sits above
+   the panel's z-index so it muddied the card it was meant to announce. */
+#notch-content.perm #perm-glow { opacity:1; }
+#notch-content.perm.open #perm-glow { opacity:0; }
+@keyframes permBreathe { 0%,100% { opacity:.55; } 50% { opacity:1; } }
+
+/* ── The worker ──
+   A lit sphere with a face, breathing while it has work on. Colour comes from
+   --ac so the same element covers idle, working and trouble. */
+/* ── The agent mark ──
+   The pixel character: a body that breathes, eyes that blink, and a scan beam
+   that sweeps it while work is actually happening. Pure SVG + keyframes, so it
+   stays sharp at pill size and at panel size alike.
+   States come from the agents themselves: idle when nothing runs, thinking when
+   one is running but quiet, running when a log changed in the last few seconds. */
+.agent-av { position:relative; display:block; }
+.agent-av svg { width:100%; height:100%; display:block; overflow:visible; }
+
+.agent-av .body {
+  fill:#d97757;
+  transform-origin:center;
+  animation:clPulse 1.8s ease-in-out infinite alternate;
+}
+.agent-av .eye {
+  fill:#ffffff;
+  transform-box:fill-box; transform-origin:center;
+  animation:clBlink 3s ease-in-out infinite;
+}
+.agent-av .scan { fill:url(#clScan); opacity:0; }
+
+/* Referenced by the live ticker line and the focused agent row. These went
+   missing with an earlier icon rewrite, which left both rendering a flat
+   gradient and a dead dot instead of moving. */
+@keyframes shimmer {
+  from { background-position:130% 0; }
+  to   { background-position:-130% 0; }
+}
+@keyframes adpulse { 0%,100% { opacity:1; } 50% { opacity:.4; } }
+
+@keyframes clPulse {
+  0%   { transform:translateY(0)     scale(1);
+         filter:drop-shadow(0 0 3px rgba(217,119,87,.30)); }
+  100% { transform:translateY(-1.5%) scale(1.02);
+         filter:drop-shadow(0 0 7px rgba(217,119,87,.75)); }
+}
+@keyframes clBlink {
+  0%, 90%, 100% { transform:scaleY(1); }
+  95%           { transform:scaleY(.1); }
+}
+@keyframes clScanSweep {
+  0%   { transform:translateY(120px); opacity:.2; }
+  50%  { opacity:1; }
+  100% { transform:translateY(380px); opacity:.2; }
+}
+
+/* Idle: everything settles. Nothing sweeps, the breath slows right down. */
+.agent-av[data-state="idle"] .body { animation-duration:4.2s; }
+.agent-av[data-state="idle"] .scan { animation:none; opacity:0; }
+
+/* Thinking: the pulse carries it, no beam. */
+.agent-av[data-state="thinking"] .scan { animation:none; opacity:0; }
+
+/* Running: faster heartbeat, and the beam sweeps the body. */
+.agent-av[data-state="running"] .body { animation-duration:.8s; }
+.agent-av[data-state="running"] .scan { animation:clScanSweep 1.5s ease-in-out infinite; }
+
+/* Stalled: it stops. A still mark is the clearest way to say nothing is moving. */
+.agent-av.bad .body { animation:none; fill:#c7613f; filter:none; }
+.agent-av.bad .eye  { animation:none; transform:scaleY(.12); }
+.agent-av.bad .scan { animation:none; opacity:0; }
+
+/* ── Collapsed: the worker at one end, its crew at the other ── */
+/* Claude and its crew take the right-hand end of the pill, opposite the art. */
+/* Spans the pill rather than shrink-wrapping the crew, because the mark walks
+   inside this box: pinned to the right it had only its own width to move in, so
+   every path drawn here stayed in the corner however it was shaped. The crew
+   still sits at the right-hand end; only the box it hangs off got wider. */
+#agent-mini {
+  display:none; align-items:center; gap:8px; justify-content:flex-end;
+  position:absolute; top:0; bottom:0; left:0; right:11px;
+  pointer-events:none;
+}
+#notch-content.agents #agent-mini { display:flex; }
+#notch-content.agents.open #agent-mini { display:none; }
+/* The pill's own contents step aside while the crew is out. */
+/* The art stays: what is playing belongs on the left whatever the agents are
+   doing. Only the wave gives up its slot, because that is where the agents go. */
+#notch-content.agents #pill-wave { display:none; }
+#agent-mini-av { width:17px; height:17px; flex:0 0 auto; }
+/* Closed and working, the mark walks across the pill rather than round its rim,
+   where it spent most of the loop sitting in a corner. A straight line through
+   the middle of the collapsed pill (200x29), stopping short of the crew of orbs
+   parked at the right-hand end. It fades out at the far side and back in at the
+   near one, so the loop reads as another lap and not as a snap back.
+
+   Three animations, not one, on three properties that don't fight: where it is
+   (offset-distance), its hop (transform) and its lean (the standalone rotate).
+   Their periods share no common factor worth the name -- 7.3s, 0.67s, 2.9s --
+   so the combination takes hours to come round again. That is where the
+   not-quite-repeating, alive feel comes from; CSS has no randomness to call. */
+#notch-content.agents:not(.open) #agent-mini-av {
+  position:absolute; left:0; top:0;
+  /* Pill coordinates now (200x29, box inset 11px at the right). The crew is a
+     26px orb plus its count, so it owns roughly the last 42px; the walk stops
+     at 126 to keep the 17px mark clear of it. */
+  offset-path:path('M 16 14.5 H 126');
+  offset-rotate:0deg;
+  transform-origin:50% 85%;   /* the feet, so a squash sits down rather than shrinking */
+  animation:
+    markWalk 7.3s  linear                    infinite,
+    markHop  0.67s cubic-bezier(.3,0,.45,1)  infinite,
+    markLean 2.9s  ease-in-out               infinite;
+}
+/* The crossing itself. Uneven gaps between the keyframes under a linear timing
+   mean it hurries, then dawdles, then stops dead for a beat as though something
+   caught its eye -- all without a second animation to schedule. */
+@keyframes markWalk {
+  0%   { offset-distance:0%;   opacity:0; }
+  7%   { opacity:1; }
+  24%  { offset-distance:31%; }
+  31%  { offset-distance:33%; }
+  52%  { offset-distance:46%; }
+  57%  { offset-distance:46%; }
+  93%  { opacity:1; }
+  100% { offset-distance:100%; opacity:0; }
+}
+/* The hop. Squashed wide on the landing, stretched tall off the top: the weight
+   is what sells it as a thing walking rather than a sprite sliding sideways. */
+@keyframes markHop {
+  0%   { transform:translateY(0)      scale(1.16, .84); }
+  16%  { transform:translateY(-3.6px) scale(.93, 1.09); }
+  44%  { transform:translateY(-4.8px) scale(1, 1); }
+  72%  { transform:translateY(-1.1px) scale(1.03, .97); }
+  100% { transform:translateY(0)      scale(1.16, .84); }
+}
+/* A slow sway on its own clock, so no two hops land at the same angle. */
+@keyframes markLean {
+  0%, 100% { rotate:-8deg; }
+  50%      { rotate:8deg; }
+}
+/* Nothing moving, nothing walking. */
+#notch-content.agents:not(.open) .agent-av.bad { animation:none; }
+#agent-mini-grid { display:flex; align-items:center; gap:4px; }
+#agent-mini-grid canvas { display:block; }
+.ad-more { font:700 9.5px/1 var(--font); color:#8e939c; }
+#agent-mini-grid i {
+  width:8px; height:8px; border-radius:50%;
+  background:
+    radial-gradient(circle at 37% 42%, rgba(10,14,22,.75) 0 1px, transparent 1.3px),
+    radial-gradient(circle at 63% 42%, rgba(10,14,22,.75) 0 1px, transparent 1.3px),
+    radial-gradient(circle at 34% 30%, hsl(var(--h) 95% 82%), hsl(var(--h) 80% 58%));
+}
+#agent-mini-grid i.running { animation:adpulse 1.7s ease-in-out infinite; }
+
+/* ── Open: two cards ── */
+#agents-panel ::-webkit-scrollbar, #ap-side::-webkit-scrollbar { width:0; height:0; }
+#agents-panel {
+  position:absolute; inset:0; z-index:4;
+  display:none; flex-direction:column; gap:8px;
+  padding:9px 12px 12px;
+  pointer-events:none; opacity:0;
+  transition:opacity 200ms ease;
+}
+/* The strip above the card, like the reel's. */
+#ap-head {
+  flex:0 0 auto; display:flex; align-items:baseline; gap:8px;
+  padding:0 6px;
+}
+#ap-tabs { display:flex; align-items:center; gap:3px; margin-right:3px; }
+.ap-tab {
+  width:28px; height:23px; padding:0; border:none; border-radius:8px;
+  display:flex; align-items:center; justify-content:center;
+  background:transparent; color:#6b7079;
+  cursor:pointer; -webkit-app-region:no-drag;
+  transition:background 130ms, color 130ms;
+}
+.ap-tab svg { width:14px; height:14px; }
+.ap-tab:hover { color:#c9cdd4; background:rgba(255,255,255,.06); }
+.ap-tab.on { color:#f5f6f8; background:#1d1f23; }
+#ap-count { font:600 12px/1 var(--font); color:#fff; }
+#ap-where {
+  font:500 10.5px/1 var(--font); color:#5f646d;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+/* One card, split: who on the left, what they did on the right. */
+#ap-body { flex:1 1 auto; display:flex; min-height:0; }
+#ap-side {
+  flex:0 0 186px; min-width:0; overflow:hidden auto;
+  scrollbar-width:none;          /* swipe to scroll; the bar only ate space */
+  display:flex; flex-direction:column;
+  padding:15px 15px 15px 17px;
+}
+/* Its own surface inside the card, so the activity reads as a separate pane
+   rather than text floating on the same slab as the agent list. */
+#ap-main {
+  flex:1 1 auto; min-width:0; min-height:0;
+  margin:11px 11px 11px 0; padding:12px 6px 12px 14px;
+  display:flex; flex-direction:column; overflow:hidden;
+  /* The same lens, one layer in: clear through the middle so the panel reads as
+     glass on glass rather than a flat inset. */
+  background:
+    radial-gradient(130% 115% at 50% 40%,
+      rgba(6,7,9,.14) 0%,
+      rgba(6,7,9,.42) 52%,
+      rgba(6,7,9,.62) 100%);
+  backdrop-filter:blur(22px) saturate(140%);
+  -webkit-backdrop-filter:blur(22px) saturate(140%);
+  border-radius:16px;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.055),
+    inset 0 0 0 1px rgba(255,255,255,.04),
+    inset 0 0 20px 1px rgba(255,255,255,.025);
+}
+/* The column already has its own surface; the diff does not need a second one. */
+#ap-diff-body { background:transparent; padding:0; }
+#notch-content.agents.open #agents-panel { display:flex; opacity:1; pointer-events:all; }
+/* The player steps aside rather than competing for the same box. */
+#notch-content.agents.open #panel { display:none; }
+/* Music tab: the player comes back and the agent card steps aside. The header
+   stays put, so you can switch back. */
+#notch-content.agents.open.music #ap-body { display:none; }
+#notch-content.agents.open.music #panel {
+  display:flex; top:34px;          /* clear of the header strip */
+}
+#notch-content.agents.open.music #agents-panel { padding-bottom:0; }
+#notch-content.agents.open.music #ap-count,
+#notch-content.agents.open.music #ap-where { display:none; }
+/* The glass stays. It refracts behind the cards, and the cards themselves are
+   solid, so the small text sits on a flat surface while the panel still reads as
+   a pane of glass. */
+/* Black at the edge. The glass is the cards now, so the panel behind them is
+   just a dark surface for them to sit on, and the notch keeps a solid border
+   against the desktop. */
+/* Black, but the last few pixels ease out so the edge is not a hard line laid
+   over the desktop. */
+#notch-content.agents #glass-tint {
+  background:linear-gradient(to bottom,
+    #000 0%, #000 90%, rgba(0,0,0,.94) 97%, rgba(0,0,0,.86) 100%);
+}
+
+.ap-card {
+  border-radius:15px;
+  /* Real glass is thinnest in the middle and thickest at the rim, so the centre
+     is nearly clear and the edges carry the density. The two inset highlights
+     are the light catching the top lip and the inner wall. */
+  background:
+    radial-gradient(135% 120% at 50% 42%,
+      rgba(18,19,22,.16) 0%,
+      rgba(18,19,22,.40) 48%,
+      rgba(16,17,20,.66) 78%,
+      rgba(14,15,18,.78) 100%);
+  backdrop-filter:blur(30px) saturate(165%);
+  -webkit-backdrop-filter:blur(30px) saturate(165%);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.10),
+    inset 0 0 0 1px rgba(255,255,255,.055),
+    inset 0 0 24px 2px rgba(255,255,255,.035),
+    inset 0 -16px 30px -20px rgba(255,255,255,.08),
+    0 1px 0 rgba(255,255,255,.03),
+    0 14px 40px rgba(0,0,0,.40),
+    0 2px 10px rgba(0,0,0,.28);
+  min-width:0;
+}
+#ap-av { width:74px; height:74px; flex:0 0 auto; margin-bottom:12px; }
+#ap-name, #ap-src, #ap-steps { flex:0 0 auto; }
+#ap-name {
+  min-width:0; max-width:100%;
+  font:700 15px/1.2 var(--font); color:#fff;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+#ap-src { font:500 11px/1.2 var(--font); color:#5f646d; margin-top:2px; }
+
+/* The agents, a line each, with the same status marks the reel uses: a filled
+   tick for finished, a turning ring for the one at work, a flat glyph for the
+   rest. */
+#ap-steps { margin-top:16px; min-width:0; display:flex; flex-direction:column; gap:9px; }
+.ap-step {
+  display:flex; align-items:flex-start; gap:9px; min-width:0;
+  font:600 12.5px/1.25 var(--font);
+  color:#5f646d;
+  cursor:pointer; -webkit-app-region:no-drag;
+}
+.ap-step .mark { flex:0 0 auto; width:16px; height:16px; position:relative; margin-top:1px; }
+/* The orb is painted on its own canvas, so it gets the room the library wants. */
+.ap-step .mark.orb-mark { width:22px; height:22px; margin-top:-2px; margin-left:-3px; }
+.ap-step .mark.orb-mark canvas { display:block; }
+.ap-step .mark svg { width:100%; height:100%; display:block; }
+.ap-step .lbl {
+  min-width:0; overflow:hidden;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+}
+/* However many are at work, the column says so rather than silently cutting. */
+.ap-more-row {
+  margin-top:2px; padding-left:24px;
+  font:600 11px/1.3 var(--font); color:#5f646d;
+}
+/* A session heads its own group; what it started sits in from it. */
+.ap-step.is-session { margin-top:10px; }
+.ap-step.is-session:first-child { margin-top:0; }
+.ap-step.is-session .lbl { font-weight:700; color:#e6e9ee; }
+.ap-step.under-session { padding-left:14px; }
+.ap-step.now { color:#fff; }
+/* The one the right-hand side is following. */
+.ap-step.now .lbl { font-weight:700; }
+.ap-step:not(.now) .lbl { color:#8e939c; }
+.ap-step:not(.now):hover .lbl { color:#e6e9ee; }
+.ap-step.done-mark { color:#c9cdd4; }
+/* The ring that turns while that agent is the one working. */
+@keyframes markspin { to { transform:rotate(360deg); } }
+.ap-step .mark.spin svg { animation:markspin 1.1s linear infinite; }
+
+/* ── Waiting on you ──
+   Amber, because this state is the one that stops everything until you answer.
+   It sits over the whole panel: a blocked session is not something to show in a
+   corner.
+   Read top to bottom it answers two questions in order — who is stuck, and what
+   they want to run — and nothing else in the card is allowed to shout over
+   those two. */
+#ap-perm {
+  position:absolute; inset:0; z-index:6;
+  display:none; flex-direction:column;
+  padding:15px 17px;
+  /* The same gesture as #perm-glow makes on the outside: amber light falling in
+     from the top edge. Shut notch and open card then read as one state instead
+     of two unrelated warnings. */
+  background:
+    radial-gradient(130% 80% at 50% -12%,
+      rgba(245,165,36,.13) 0%, rgba(245,165,36,.045) 46%, rgba(245,165,36,0) 74%),
+    #141518;
+  box-shadow:
+    inset 0 0 0 1px rgba(245,165,36,.26),
+    inset 0 1px 0 rgba(255,255,255,.05);   /* lit top edge, like the glass panes */
+}
+#notch-content.perm #ap-perm { display:flex; }
+
+/* A tag, not a sentence. At text size it competed with the two lines that
+   actually carry the request, so it is small and widely spaced — the pulsing dot
+   does the attention-getting. */
+#ap-perm-top { display:flex; align-items:center; gap:6px; flex:0 0 auto; }
+#ap-perm-dot {
+  width:7px; height:7px; border-radius:50%; background:#f5a524;
+  box-shadow:0 0 8px rgba(245,165,36,.8);
+  animation:adpulse 1.4s ease-in-out infinite;
+}
+#ap-perm-where { font:700 9px/1 var(--font); letter-spacing:.09em; color:#f5a524; }
+
+/* Who is blocked, so a prompt from one of five sessions is identifiable. It sits
+   directly above the tool name and reads quieter than it: you use this line to
+   place the request, not to decide it. */
+#ap-perm-who {
+  margin-top:10px; flex:0 0 auto;
+  font:600 11.5px/1.3 var(--font); color:#8e939c;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+/* The tool is the headline: it is the thing being said yes or no to. */
+#ap-perm-row {
+  margin-top:3px; flex:0 0 auto;
+  display:flex; align-items:center; gap:10px;
+}
+#ap-perm-tool {
+  flex:1 1 auto; min-width:0;
+  font:700 19px/1.15 var(--font); letter-spacing:-.01em; color:#fff;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+/* The queue is a count, not part of the name — as plain text beside the headline
+   it read like a suffix of it. Pushed to the far end as a chip, and gone
+   entirely in the usual case of nothing else waiting. */
+#ap-perm-sub {
+  flex:0 0 auto;
+  padding:4px 8px; border-radius:7px;
+  background:rgba(245,165,36,.14);
+  font:700 9.5px/1 var(--font); letter-spacing:.05em; color:#f5a524;
+}
+#ap-perm-sub:empty { display:none; }
+
+/* The command on its own surface: it is the thing being judged. The box now
+   takes the height of what it holds — one short line in a box sized for ten was
+   most of the card — and only shrinks into a scroller when the card runs out of
+   room. That is flex-shrink doing it, not a max-height guess, so it adapts to
+   whatever height the panel happens to be. */
+#ap-perm-what {
+  margin-top:11px; flex:0 1 auto; min-height:0;
+  overflow-y:auto; overscroll-behavior:contain; scrollbar-width:none;
+  padding:10px 12px; border-radius:12px;
+  background:#0b0c0e; box-shadow:inset 0 0 0 1px rgba(255,255,255,.04);
+  font:500 12px/1.55 var(--mono-font); color:#e6e9ee;
+  white-space:pre-wrap; word-break:break-word;
+}
+
+/* The answer rides the bottom edge whatever the command's height, so the row is
+   in the same place every time the card appears. A row that floats up and down
+   with the text above it is a row you have to look for.
+   The card is as tall as the panel's last agents layout left it, so a short
+   command's leftover height collects here instead of padding out the box. */
+#ap-perm-btns {
+  flex:0 0 auto; display:flex; gap:8px; margin-top:14px;
+}
+.pm-btn {
+  flex:0 0 auto; height:33px; padding:0 15px; border:none; border-radius:11px;
+  font:600 12px/1 var(--font);
+  background:rgba(255,255,255,.09); color:#e6e9ee;
+  cursor:pointer; -webkit-app-region:no-drag;
+  transition:background 130ms, color 130ms, transform 80ms;
+}
+.pm-btn:hover { background:rgba(255,255,255,.17); }
+.pm-btn:active { transform:scale(.96); }
+/* The notch is pointer-driven, but a button that can take focus has to show it. */
+.pm-btn:focus-visible { outline:2px solid rgba(245,165,36,.75); outline-offset:2px; }
+/* Allow takes the room the other two do not need: the answer given most often
+   should be the biggest target, and amber ties it to the state it clears. The
+   cap is there because the panel is 660px wide and a pill that long stops
+   reading as a button. */
+.pm-btn.primary {
+  flex:1 1 auto; max-width:200px;
+  background:#f5a524; color:#19120a;
+  box-shadow:0 1px 10px rgba(245,165,36,.20);
+}
+.pm-btn.primary:hover { background:#ffb63e; }
+/* Deny means the opposite of the two beside it, so it leaves the group: unfilled
+   where they are filled, and pushed to the far end of the row by whatever width
+   Allow did not take. Three matching pills in a row is how the wrong one gets
+   pressed. The auto margin collapses to nothing in the narrow player-sized
+   panel, which is why the outline carries the difference on its own. */
+.pm-btn[data-decision="deny"] {
+  margin-left:auto;
+  background:transparent; color:#8e939c;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.10);
+}
+.pm-btn[data-decision="deny"]:hover {
+  background:rgba(244,80,94,.22); color:#ff8d97;
+  box-shadow:inset 0 0 0 1px rgba(244,80,94,.34);
+}
+
+/* ── One call, opened ──
+   Three parts, each on its own line: what tool it was, what it was given, and
+   what came back. Cramming them together was the problem. */
+#ap-read { display:none; flex-direction:column; height:100%; min-height:0; }
+#ap-main.reading #ap-read { display:flex; }
+#ap-main.reading #ap-calls, #ap-main.reading #ap-diff { display:none; }
+
+#ap-read-head { flex:0 0 auto; display:flex; align-items:center; gap:9px; }
+#ap-read-back {
+  flex:0 0 auto; width:24px; height:24px; padding:0; border:none; border-radius:8px;
+  display:flex; align-items:center; justify-content:center;
+  background:rgba(255,255,255,.09); color:#c9cdd4;
+  cursor:pointer; -webkit-app-region:no-drag;
+  transition:background 130ms, color 130ms;
+}
+#ap-read-back:hover { background:rgba(255,255,255,.18); color:#fff; }
+#ap-read-back svg { width:12px; height:12px; }
+/* The tool as a chip, so it never competes with the name beside it. */
+#ap-read-tool {
+  flex:0 0 auto; padding:3px 8px; border-radius:7px;
+  background:rgba(255,255,255,.08);
+  font:700 9.5px/1 var(--font); letter-spacing:.06em; color:#c9cdd4;
+}
+#ap-read-name {
+  flex:0 0 auto; margin-top:9px; padding-right:8px;
+  font:600 13px/1.35 var(--font); color:#ffffff;
+  word-break:break-word;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+}
+
+/* One scroller for both blocks, so a long command and a long output read as one
+   continuous thing instead of two boxes fighting for the same height. */
+#ap-read-scroll {
+  flex:1 1 auto; min-height:0; margin-top:10px; padding-right:8px;
+  overflow-y:auto; overscroll-behavior:contain; scrollbar-width:none;
+}
+#ap-read pre {
+  margin:0; font:500 11.5px/1.6 var(--mono-font);
+  white-space:pre-wrap; word-break:break-word;
+}
+#ap-read-cmd { color:#e6e9ee; }
+#ap-read-cmd:empty { display:none; }
+#ap-read-outlabel {
+  margin:13px 0 6px;
+  font:700 9px/1 var(--font); letter-spacing:.08em; color:#4b5563;
+}
+#ap-read-out { color:#9398a1; }
+
+/* A line you can open says so on hover. */
+.tick-row.can-open { cursor:pointer; }
+.tick-row.can-open:hover .txt { color:#c9cdd4; }
+
+/* ── The diff, the way the reference shows it ── */
+#ap-diff { display:none; flex-direction:column; height:100%; min-height:0; }
+#ap-main.diffing #ap-diff { display:flex; }
+#ap-main.diffing #ap-calls { display:none; }
+
+#ap-diff-head {
+  flex:0 0 auto; display:flex; align-items:center; gap:7px;
+  padding:0 2px 9px;
+}
+#ap-diff-file { font:600 12.5px/1 var(--font); color:#f5f6f8; }
+#ap-diff-dot {
+  width:6px; height:6px; border-radius:50%; background:#f5a524;
+  flex:0 0 auto;
+}
+#ap-diff-path {
+  margin-left:auto; font:500 11px/1 var(--mono-font);
+  color:#4b5563; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+
+#ap-diff-body {
+  flex:1 1 auto; min-height:0;
+  overflow-y:auto; overscroll-behavior:contain;
+  background:#0e0f11; border-radius:10px;
+  padding:9px 0;
+}
+/* Everything in here scrolls by gesture; no bars taking up room. */
+#ap-diff-body { scrollbar-width:none; }
+.dl { display:flex; align-items:baseline; font:500 11.5px/1.65 var(--mono-font); }
+.dl .ln {
+  flex:0 0 34px; text-align:right; padding-right:11px;
+  color:#3f444c; font-variant-numeric:tabular-nums;
+}
+.dl .sg { flex:0 0 13px; text-align:center; color:#5f646d; }
+.dl .cd { flex:1 1 auto; min-width:0; color:#c9cdd4;
+          overflow:hidden; text-overflow:ellipsis; white-space:pre; }
+.dl.del { background:rgba(244,80,94,.13); }
+.dl.del .sg, .dl.del .cd { color:#ff8d97; }
+.dl.del .cd { text-decoration:line-through; text-decoration-color:rgba(255,141,151,.5); }
+.dl.add { background:rgba(34,197,94,.14); }
+.dl.add .sg, .dl.add .cd { color:#7ee2a8; }
+
+/* The ticker, ported from the reference: rows sit on a conveyor, the newest at
+   the bottom, older ones sliding up and out under a mask. A row that is no
+   longer current shifts left, scales down and swaps its chevron for a check. */
+#ap-calls {
+  width:100%; flex:1 1 auto; min-height:0;
+  display:flex; flex-direction:column; gap:9px;
+  overflow-y:auto; overscroll-behavior:contain;
+  scrollbar-width:none;
+  padding-right:8px; padding-bottom:2px;
+}
+/* Every call the agent has made, oldest first, newest at the bottom. A new row
+   slides up into place; the rest simply scroll. */
+.tick-row {
+  flex:0 0 auto; min-height:20px;
+  display:flex; align-items:flex-start; gap:10px; min-width:0;
+  transform-origin:left center;
+  animation:tickIn 380ms cubic-bezier(.4,0,.2,1) 1;
+}
+/* The last word, once the work stops. It gets the left margin the tool rows use
+   for their mark, so it lines up with everything above it. */
+.tick-final { padding-left:21px; }
+/* The closing message is the one line you actually came to read, so it is not
+   clamped the way the running narration is. display:block is what turns the
+   clamp off -- -webkit-line-clamp only bites on a -webkit-box. */
+.tick-final .tick-say { color:#ffffff; display:block; -webkit-line-clamp:none; }
+
+/* A call and the thought behind it travel together. */
+.tick-group {
+  flex:0 0 auto; display:flex; flex-direction:column; gap:4px; min-width:0;
+  animation:tickIn 380ms cubic-bezier(.4,0,.2,1) 1;
+}
+.tick-say strong { font-weight:700; color:#e6e9ee; }
+.tick-group:not(.done-row) .tick-say strong { color:#ffffff; }
+.tick-say code {
+  font:600 11px/1 var(--mono-font);
+  padding:1.5px 5px; border-radius:5px;
+  background:rgba(255,255,255,.09);
+  color:#d7dbe2;
+  white-space:nowrap;
+}
+.tick-group:not(.done-row) .tick-say code {
+  background:rgba(255,255,255,.14); color:#fff;
+}
+/* The narration is the line you actually read, so it carries the weight. The
+   tool rows under it are the supporting detail, not the other way round. */
+.tick-say {
+  min-width:0;
+  font:600 12.5px/1.6 var(--font); color:#9398a1;
+  display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;
+  transition:color 300ms ease;
+}
+/* What it is saying right now is white; what it already said steps back. */
+.tick-group:not(.done-row) .tick-say { color:#ffffff; font-weight:600; }
+
+/* The closing message is read, not skimmed, so it gets the shape it was written
+   with. Its body drops to 500 so that the bold inside it is actually the heavier
+   thing on the line -- at 600 everywhere there was nothing for bold to stand
+   against, which is why it looked like it was being ignored. */
+.tick-group.tick-final .tick-say { font-weight:500; line-height:1.55; }
+.say-p + .say-p, .say-p + .say-li, .say-li + .say-p,
+.say-h, .say-p + .say-h, .say-li + .say-h { margin-top:7px; }
+.say-li + .say-li { margin-top:3px; }
+.say-h { font-weight:700; color:#fff; }
+.say-li { padding-left:12px; position:relative; }
+.say-li::before {
+  content:'';
+  position:absolute; left:2px; top:.62em;
+  width:3px; height:3px; border-radius:50%;
+  background:currentColor; opacity:.55;
+}
+
+@keyframes tickIn {
+  0%   { transform:translateY(12px) scale(.96); opacity:0; }
+  60%  { opacity:1; }
+  100% { transform:none; opacity:1; }
+}
+/* Everything fades between live and finished instead of switching instantly. */
+.tick-row .txt { transition:color 300ms ease; }
+.tick-row.done-row .txt { color:#5f646d; }
+/* Both marks live in the row and cross-fade, so the swap happens in place. */
+.tick-mark { position:relative; flex:0 0 13px; width:13px; height:13px; margin-top:3px; }
+.tick-mark svg {
+  position:absolute; inset:0; width:100%; height:100%;
+  transition:opacity 380ms cubic-bezier(.4,0,.2,1);
+}
+.tick-mark .chev { color:#ffffff; }
+.tick-mark .tick { color:#6b7079; opacity:0; }
+.tick-row.done-row .tick-mark .chev { opacity:0; }
+.tick-row.done-row .tick-mark .tick { opacity:1; }
+
+.tick-row b {
+  flex:0 0 auto; margin-top:1px;
+  font:700 11px/1.45 var(--font); letter-spacing:.03em;
+  color:#6b7079;
+  transition:color 300ms ease;
+}
+.tick-row.live b { color:#ffffff; }
+.tick-row .txt {
+  min-width:0; flex:1 1 auto;
+  font:500 13px/1.45 var(--font); color:#5f646d;
+  overflow:hidden;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+}
+/* The live line catches the light. Same sweep as the reference: 2.2s, 260%. */
+.tick-row.live .txt, .ap-step.now .lbl {
+  background:linear-gradient(90deg, #7c818a 0%, #f2f3f5 40%, #7c818a 70%);
+  background-size:260% 100%;
+  -webkit-background-clip:text; background-clip:text;
+  color:transparent;
+  animation:shimmer 2.2s linear infinite;
+}
+.tick-row .delta {
+  flex:0 0 auto; font:700 10.5px/1.45 var(--font);
+  font-variant-numeric:tabular-nums;
+}
+.tick-row .delta .add { color:#34d399; }
+.tick-row .delta .del { color:#f4505e; margin-left:5px; }
+.ap-calls-empty { font:500 9.5px/1.4 var(--font); color:rgba(255,255,255,.35); }
 
 /* ── Expanded panel ── */
 /* Stacked, like the reference: art and title across the top, the progress bar
@@ -712,6 +1415,12 @@ html,body {
     <div id="glass-pane"></div>
   </div>
   <div id="glass-edge"></div>
+  <!-- Rises up the notch when an agent finishes, so a result is noticed even
+       with the panel shut. -->
+  <div id="done-flash"></div>
+  <!-- Stays lit while a session is blocked waiting on you, so a shut notch still
+       tells you something needs answering. -->
+  <div id="perm-glow" class="idle"></div>
   <div id="charge">
     <svg id="charge-glyph" viewBox="0 0 17.62 8.39" fill="currentColor"><path id="charge-glyph-path"/></svg>
     <span id="charge-pct">—</span>
@@ -727,6 +1436,88 @@ html,body {
     </div>
     <div id="pill-wave">
       <svg id="pill-wave-svg" viewBox="19.56 37.5 102.63 75" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><g transform="matrix(1,0,0,1,97.75,73.473)"><g transform="matrix(1,0,0,1,-74.942,1.527)"><path d="M3,-2C3,-2,3,7.25,3,7.25C3,8.907,1.657,10.25,0,10.25C-1.657,10.25,-3,8.907,-3,7.25C-3,7.25,-3,-2,-3,-2C-3,-3.657,-1.657,-5,0,-5C1.657,-5,3,-3.657,3,-2Z" fill="currentColor"><animate repeatCount="indefinite" attributeName="d" dur="1.44s" begin="0s" calcMode="spline" values="M3,-2C3,-2,3,7.25,3,7.25C3,8.907,1.657,10.25,0,10.25C-1.657,10.25,-3,8.907,-3,7.25C-3,7.25,-3,-2,-3,-2C-3,-3.657,-1.657,-5,0,-5C1.657,-5,3,-3.657,3,-2Z; M3,-17C3,-17,3,17,3,17C3,18.657,1.657,20,0,20C-1.657,20,-3,18.657,-3,17C-3,17,-3,-17,-3,-17C-3,-18.657,-1.657,-20,0,-20C1.657,-20,3,-18.657,3,-17Z; M3,-34.25C3,-34.25,3,30,3,30C3,31.657,1.657,33,0,33C-1.657,33,-3,31.657,-3,30C-3,30,-3,-34.25,-3,-34.25C-3,-35.907,-1.657,-37.25,0,-37.25C1.657,-37.25,3,-35.907,3,-34.25Z; M3,-17C3,-17,3,17,3,17C3,18.657,1.657,20,0,20C-1.657,20,-3,18.657,-3,17C-3,17,-3,-17,-3,-17C-3,-18.657,-1.657,-20,0,-20C1.657,-20,3,-18.657,3,-17Z; M3,-2C3,-2,3,7.25,3,7.25C3,8.907,1.657,10.25,0,10.25C-1.657,10.25,-3,8.907,-3,7.25C-3,7.25,-3,-2,-3,-2C-3,-3.657,-1.657,-5,0,-5C1.657,-5,3,-3.657,3,-2Z; M3,-17C3,-17,3,17,3,17C3,18.657,1.657,20,0,20C-1.657,20,-3,18.657,-3,17C-3,17,-3,-17,-3,-17C-3,-18.657,-1.657,-20,0,-20C1.657,-20,3,-18.657,3,-17Z; M3,-2C3,-2,3,7.25,3,7.25C3,8.907,1.657,10.25,0,10.25C-1.657,10.25,-3,8.907,-3,7.25C-3,7.25,-3,-2,-3,-2C-3,-3.657,-1.657,-5,0,-5C1.657,-5,3,-3.657,3,-2Z" keyTimes="0; 0.166667; 0.333333; 0.5; 0.666667; 0.833333; 1" keySplines="0 0 1 1; 0 0 1 1; 0 0 1 1; 0 0 1 1; 0 0 1 1; 0 0 1 1" fill="freeze" /></path></g></g><g transform="matrix(1,0,0,1,109.875,73.473)"><g transform="matrix(1,0,0,1,-74.942,1.527)"><path d="M2.875,-8.5C2.875,-8.5,2.875,12.25,2.875,12.25C2.875,13.907,1.532,15.25,-0.125,15.25C-1.782,15.25,-3.125,13.907,-3.125,12.25C-3.125,12.25,-3.125,-8.5,-3.125,-8.5C-3.125,-10.157,-1.782,-11.5,-0.125,-11.5C1.532,-11.5,2.875,-10.157,2.875,-8.5Z" fill="currentColor"><animate repeatCount="indefinite" attributeName="d" dur="1.44s" begin="0s" calcMode="spline" values="M2.875,-8.5C2.875,-8.5,2.875,12.25,2.875,12.25C2.875,13.907,1.532,15.25,-0.125,15.25C-1.782,15.25,-3.125,13.907,-3.125,12.25C-3.125,12.25,-3.125,-8.5,-3.125,-8.5C-3.125,-10.157,-1.782,-11.5,-0.125,-11.5C1.532,-11.5,2.875,-10.157,2.875,-8.5Z; M3,-2C3,-2,3,7.25,3,7.25C3,8.907,1.657,10.25,0,10.25C-1.657,10.25,-3,8.907,-3,7.25C-3,7.25,-3,-2,-3,-2C-3,-3.657,-1.657,-5,0,-5C1.657,-5,3,-3.657,3,-2Z; M3,-17C3,-17,3,17,3,17C3,18.657,1.657,20,0,20C-1.657,20,-3,18.657,-3,17C-3,17,-3,-17,-3,-17C-3,-18.657,-1.657,-20,0,-20C1.657,-20,3,-18.657,3,-17Z; M3,-34.25C3,-34.25,3,30,3,30C3,31.657,1.657,33,0,33C-1.657,33,-3,31.657,-3,30C-3,30,-3,-34.25,-3,-34.25C-3,-35.907,-1.657,-37.25,0,-37.25C1.657,-37.25,3,-35.907,3,-34.25Z; M3,-17C3,-17,3,17,3,17C3,18.657,1.657,20,0,20C-1.657,20,-3,18.657,-3,17C-3,17,-3,-17,-3,-17C-3,-18.657,-1.657,-20,0,-20C1.657,-20,3,-18.657,3,-17Z; M3,-2C3,-2,3,7.25,3,7.25C3,8.907,1.657,10.25,0,10.25C-1.657,10.25,-3,8.907,-3,7.25C-3,7.25,-3,-2,-3,-2C-3,-3.657,-1.657,-5,0,-5C1.657,-5,3,-3.657,3,-2Z; M2.875,-6C2.875,-6,2.875,12.75,2.875,12.75C2.875,14.407,1.532,15.75,-0.125,15.75C-1.782,15.75,-3.125,14.407,-3.125,12.75C-3.125,12.75,-3.125,-6,-3.125,-6C-3.125,-7.657,-1.782,-9,-0.125,-9C1.532,-9,2.875,-7.657,2.875,-6Z" keyTimes="0; 0.166667; 0.333333; 0.5; 0.666667; 0.833333; 1" keySplines="0 0 1 1; 0 0 1 1; 0 0 1 1; 0 0 1 1; 0 0 1 1; 0 0 1 1" fill="freeze" /></path></g></g><g transform="matrix(1,0,0,1,121.875,73.473)"><g transform="matrix(1,0,0,1,-74.942,1.527)"><path d="M2.875,-24C2.875,-24,2.875,20.25,2.875,20.25C2.875,21.907,1.532,23.25,-0.125,23.25C-1.782,23.25,-3.125,21.907,-3.125,20.25C-3.125,20.25,-3.125,-24,-3.125,-24C-3.125,-25.657,-1.782,-27,-0.125,-27C1.532,-27,2.875,-25.657,2.875,-24Z" fill="currentColor"><animate repeatCount="indefinite" attributeName="d" dur="1.44s" begin="0s" calcMode="spline" values="M2.875,-24C2.875,-24,2.875,20.25,2.875,20.25C2.875,21.907,1.532,23.25,-0.125,23.25C-1.782,23.25,-3.125,21.907,-3.125,20.25C-3.125,20.25,-3.125,-24,-3.125,-24C-3.125,-25.657,-1.782,-27,-0.125,-27C1.532,-27,2.875,-25.657,2.875,-24Z; M3,-34.25C3,-34.25,3,30,3,30C3,31.657,1.657,33,0,33C-1.657,33,-3,31.657,-3,30C-3,30,-3,-34.25,-3,-34.25C-3,-35.907,-1.657,-37.25,0,-37.25C1.657,-37.25,3,-35.907,3,-34.25Z; M3,-17C3,-17,3,17,3,17C3,18.657,1.657,20,0,20C-1.657,20,-3,18.657,-3,17C-3,17,-3,-17,-3,-17C-3,-18.657,-1.657,-20,0,-20C1.657,-20,3,-18.657,3,-17Z; M3,-2C3,-2,3,7.25,3,7.25C3,8.907,1.657,10.25,0,10.25C-1.657,10.25,-3,8.907,-3,7.25C-3,7.25,-3,-2,-3,-2C-3,-3.657,-1.657,-5,0,-5C1.657,-5,3,-3.657,3,-2Z; M2.875,-4.5C2.875,-4.5,2.875,6.75,2.875,6.75C2.875,8.407,1.532,9.75,-0.125,9.75C-1.782,9.75,-3.125,8.407,-3.125,6.75C-3.125,6.75,-3.125,-4.5,-3.125,-4.5C-3.125,-6.157,-1.782,-7.5,-0.125,-7.5C1.532,-7.5,2.875,-6.157,2.875,-4.5Z; M3,-2C3,-2,3,7.25,3,7.25C3,8.907,1.657,10.25,0,10.25C-1.657,10.25,-3,8.907,-3,7.25C-3,7.25,-3,-2,-3,-2C-3,-3.657,-1.657,-5,0,-5C1.657,-5,3,-3.657,3,-2Z; M3,-17C3,-17,3,17,3,17C3,18.657,1.657,20,0,20C-1.657,20,-3,18.657,-3,17C-3,17,-3,-17,-3,-17C-3,-18.657,-1.657,-20,0,-20C1.657,-20,3,-18.657,3,-17Z" keyTimes="0; 0.166667; 0.333333; 0.5; 0.666667; 0.833333; 1" keySplines="0 0 1 1; 0 0 1 1; 0 0 1 1; 0 0 1 1; 0 0 1 1; 0 0 1 1" fill="freeze" /></path></g></g><g transform="matrix(1,0,0,1,133.75,73.473)"><g transform="matrix(1,0,0,1,-74.942,1.527)"><path d="M3,-7.25C3,-7.25,3,11.5,3,11.5C3,13.157,1.657,14.5,0,14.5C-1.657,14.5,-3,13.157,-3,11.5C-3,11.5,-3,-7.25,-3,-7.25C-3,-8.907,-1.657,-10.25,0,-10.25C1.657,-10.25,3,-8.907,3,-7.25Z" fill="currentColor"><animate repeatCount="indefinite" attributeName="d" dur="1.44s" begin="0s" calcMode="spline" values="M3,-7.25C3,-7.25,3,11.5,3,11.5C3,13.157,1.657,14.5,0,14.5C-1.657,14.5,-3,13.157,-3,11.5C-3,11.5,-3,-7.25,-3,-7.25C-3,-8.907,-1.657,-10.25,0,-10.25C1.657,-10.25,3,-8.907,3,-7.25Z; M3,-17C3,-17,3,17,3,17C3,18.657,1.657,20,0,20C-1.657,20,-3,18.657,-3,17C-3,17,-3,-17,-3,-17C-3,-18.657,-1.657,-20,0,-20C1.657,-20,3,-18.657,3,-17Z; M3,-2C3,-2,3,7.25,3,7.25C3,8.907,1.657,10.25,0,10.25C-1.657,10.25,-3,8.907,-3,7.25C-3,7.25,-3,-2,-3,-2C-3,-3.657,-1.657,-5,0,-5C1.657,-5,3,-3.657,3,-2Z; M3,-24.75C3,-24.75,3,21,3,21C3,22.657,1.657,24,0,24C-1.657,24,-3,22.657,-3,21C-3,21,-3,-24.75,-3,-24.75C-3,-26.407,-1.657,-27.75,0,-27.75C1.657,-27.75,3,-26.407,3,-24.75Z; M3,-31C3,-31,3,31.25,3,31.25C3,32.907,1.657,34.25,0,34.25C-1.657,34.25,-3,32.907,-3,31.25C-3,31.25,-3,-31,-3,-31C-3,-32.657,-1.657,-34,0,-34C1.657,-34,3,-32.657,3,-31Z; M3,-25.25C3,-25.25,3,26,3,26C3,27.657,1.657,29,0,29C-1.657,29,-3,27.657,-3,26C-3,26,-3,-25.25,-3,-25.25C-3,-26.907,-1.657,-28.25,0,-28.25C1.657,-28.25,3,-26.907,3,-25.25Z; M3,-2C3,-2,3,7.25,3,7.25C3,8.907,1.657,10.25,0,10.25C-1.657,10.25,-3,8.907,-3,7.25C-3,7.25,-3,-2,-3,-2C-3,-3.657,-1.657,-5,0,-5C1.657,-5,3,-3.657,3,-2Z" keyTimes="0; 0.166667; 0.333333; 0.5; 0.666667; 0.833333; 1" keySplines="0 0 1 1; 0 0 1 1; 0 0 1 1; 0 0 1 1; 0 0 1 1; 0 0 1 1" fill="freeze" /></path></g></g><g transform="matrix(1,0,0,1,145.75,73.473)"><g transform="matrix(1,0,0,1,-74.942,1.527)"><path d="M3,-17C3,-17,3,17,3,17C3,18.657,1.657,20,0,20C-1.657,20,-3,18.657,-3,17C-3,17,-3,-17,-3,-17C-3,-18.657,-1.657,-20,0,-20C1.657,-20,3,-18.657,3,-17Z" fill="currentColor"><animate repeatCount="indefinite" attributeName="d" dur="1.44s" begin="0s" calcMode="spline" values="M3,-17C3,-17,3,17,3,17C3,18.657,1.657,20,0,20C-1.657,20,-3,18.657,-3,17C-3,17,-3,-17,-3,-17C-3,-18.657,-1.657,-20,0,-20C1.657,-20,3,-18.657,3,-17Z; M3,-2C3,-2,3,7.25,3,7.25C3,8.907,1.657,10.25,0,10.25C-1.657,10.25,-3,8.907,-3,7.25C-3,7.25,-3,-2,-3,-2C-3,-3.657,-1.657,-5,0,-5C1.657,-5,3,-3.657,3,-2Z; M3,-17C3,-17,3,17,3,17C3,18.657,1.657,20,0,20C-1.657,20,-3,18.657,-3,17C-3,17,-3,-17,-3,-17C-3,-18.657,-1.657,-20,0,-20C1.657,-20,3,-18.657,3,-17Z; M3,-12.5C3,-12.5,3,7.25,3,7.25C3,8.907,1.657,10.25,0,10.25C-1.657,10.25,-3,8.907,-3,7.25C-3,7.25,-3,-12.5,-3,-12.5C-3,-14.157,-1.657,-15.5,0,-15.5C1.657,-15.5,3,-14.157,3,-12.5Z; M3,-3.5C3,-3.5,3,7.25,3,7.25C3,8.907,1.657,10.25,0,10.25C-1.657,10.25,-3,8.907,-3,7.25C-3,7.25,-3,-3.5,-3,-3.5C-3,-5.157,-1.657,-6.5,0,-6.5C1.657,-6.5,3,-5.157,3,-3.5Z; M3,-2C3,-2,3,7.25,3,7.25C3,8.907,1.657,10.25,0,10.25C-1.657,10.25,-3,8.907,-3,7.25C-3,7.25,-3,-2,-3,-2C-3,-3.657,-1.657,-5,0,-5C1.657,-5,3,-3.657,3,-2Z; M3,-17C3,-17,3,17,3,17C3,18.657,1.657,20,0,20C-1.657,20,-3,18.657,-3,17C-3,17,-3,-17,-3,-17C-3,-18.657,-1.657,-20,0,-20C1.657,-20,3,-18.657,3,-17Z" keyTimes="0; 0.166667; 0.333333; 0.5; 0.666667; 0.833333; 1" keySplines="0 0 1 1; 0 0 1 1; 0 0 1 1; 0 0 1 1; 0 0 1 1; 0 0 1 1" fill="freeze" /></path></g></g><g transform="matrix(1,0,0,1,157.875,73.473)"><g transform="matrix(1,0,0,1,-74.942,1.527)"><path d="M2.875,-8.5C2.875,-8.5,2.875,12.25,2.875,12.25C2.875,13.907,1.532,15.25,-0.125,15.25C-1.782,15.25,-3.125,13.907,-3.125,12.25C-3.125,12.25,-3.125,-8.5,-3.125,-8.5C-3.125,-10.157,-1.782,-11.5,-0.125,-11.5C1.532,-11.5,2.875,-10.157,2.875,-8.5Z" fill="currentColor"><animate repeatCount="indefinite" attributeName="d" dur="1.44s" begin="0s" calcMode="spline" values="M2.875,-8.5C2.875,-8.5,2.875,12.25,2.875,12.25C2.875,13.907,1.532,15.25,-0.125,15.25C-1.782,15.25,-3.125,13.907,-3.125,12.25C-3.125,12.25,-3.125,-8.5,-3.125,-8.5C-3.125,-10.157,-1.782,-11.5,-0.125,-11.5C1.532,-11.5,2.875,-10.157,2.875,-8.5Z; M3,-2C3,-2,3,7.25,3,7.25C3,8.907,1.657,10.25,0,10.25C-1.657,10.25,-3,8.907,-3,7.25C-3,7.25,-3,-2,-3,-2C-3,-3.657,-1.657,-5,0,-5C1.657,-5,3,-3.657,3,-2Z; M2.875,-4.5C2.875,-4.5,2.875,11.75,2.875,11.75C2.875,13.407,1.532,14.75,-0.125,14.75C-1.782,14.75,-3.125,13.407,-3.125,11.75C-3.125,11.75,-3.125,-4.5,-3.125,-4.5C-3.125,-6.157,-1.782,-7.5,-0.125,-7.5C1.532,-7.5,2.875,-6.157,2.875,-4.5Z; M3,-34.25C3,-34.25,3,30,3,30C3,31.657,1.657,33,0,33C-1.657,33,-3,31.657,-3,30C-3,30,-3,-34.25,-3,-34.25C-3,-35.907,-1.657,-37.25,0,-37.25C1.657,-37.25,3,-35.907,3,-34.25Z; M3,-17C3,-17,3,17,3,17C3,18.657,1.657,20,0,20C-1.657,20,-3,18.657,-3,17C-3,17,-3,-17,-3,-17C-3,-18.657,-1.657,-20,0,-20C1.657,-20,3,-18.657,3,-17Z; M3,-17C3,-17,3,17,3,17C3,18.657,1.657,20,0,20C-1.657,20,-3,18.657,-3,17C-3,17,-3,-17,-3,-17C-3,-18.657,-1.657,-20,0,-20C1.657,-20,3,-18.657,3,-17Z; M3,-2C3,-2,3,7.25,3,7.25C3,8.907,1.657,10.25,0,10.25C-1.657,10.25,-3,8.907,-3,7.25C-3,7.25,-3,-2,-3,-2C-3,-3.657,-1.657,-5,0,-5C1.657,-5,3,-3.657,3,-2Z" keyTimes="0; 0.166667; 0.333333; 0.5; 0.666667; 0.833333; 1" keySplines="0 0 1 1; 0 0 1 1; 0 0 1 1; 0 0 1 1; 0 0 1 1; 0 0 1 1" fill="freeze" /></path></g></g><g transform="matrix(1,0,0,1,169.875,73.473)"><g transform="matrix(1,0,0,1,-74.942,1.527)"><path d="M2.875,-24.5C2.875,-24.5,2.875,26,2.875,26C2.875,27.657,1.532,29,-0.125,29C-1.782,29,-3.125,27.657,-3.125,26C-3.125,26,-3.125,-24.5,-3.125,-24.5C-3.125,-26.157,-1.782,-27.5,-0.125,-27.5C1.532,-27.5,2.875,-26.157,2.875,-24.5Z" fill="currentColor"><animate repeatCount="indefinite" attributeName="d" dur="1.44s" begin="0s" calcMode="spline" values="M2.875,-24.5C2.875,-24.5,2.875,26,2.875,26C2.875,27.657,1.532,29,-0.125,29C-1.782,29,-3.125,27.657,-3.125,26C-3.125,26,-3.125,-24.5,-3.125,-24.5C-3.125,-26.157,-1.782,-27.5,-0.125,-27.5C1.532,-27.5,2.875,-26.157,2.875,-24.5Z; M3,-34.25C3,-34.25,3,30,3,30C3,31.657,1.657,33,0,33C-1.657,33,-3,31.657,-3,30C-3,30,-3,-34.25,-3,-34.25C-3,-35.907,-1.657,-37.25,0,-37.25C1.657,-37.25,3,-35.907,3,-34.25Z; M3,-17C3,-17,3,17,3,17C3,18.657,1.657,20,0,20C-1.657,20,-3,18.657,-3,17C-3,17,-3,-17,-3,-17C-3,-18.657,-1.657,-20,0,-20C1.657,-20,3,-18.657,3,-17Z; M3,-2C3,-2,3,7.25,3,7.25C3,8.907,1.657,10.25,0,10.25C-1.657,10.25,-3,8.907,-3,7.25C-3,7.25,-3,-2,-3,-2C-3,-3.657,-1.657,-5,0,-5C1.657,-5,3,-3.657,3,-2Z; M2.875,-2.75C2.875,-2.75,2.875,5,2.875,5C2.875,6.657,1.532,8,-0.125,8C-1.782,8,-3.125,6.657,-3.125,5C-3.125,5,-3.125,-2.75,-3.125,-2.75C-3.125,-4.407,-1.782,-5.75,-0.125,-5.75C1.532,-5.75,2.875,-4.407,2.875,-2.75Z; M3,-2C3,-2,3,7.25,3,7.25C3,8.907,1.657,10.25,0,10.25C-1.657,10.25,-3,8.907,-3,7.25C-3,7.25,-3,-2,-3,-2C-3,-3.657,-1.657,-5,0,-5C1.657,-5,3,-3.657,3,-2Z; M2.875,-33.25C2.875,-33.25,2.875,29,2.875,29C2.875,30.657,1.532,32,-0.125,32C-1.782,32,-3.125,30.657,-3.125,29C-3.125,29,-3.125,-33.25,-3.125,-33.25C-3.125,-34.907,-1.782,-36.25,-0.125,-36.25C1.532,-36.25,2.875,-34.907,2.875,-33.25Z" keyTimes="0; 0.166667; 0.333333; 0.5; 0.666667; 0.833333; 1" keySplines="0 0 1 1; 0 0 1 1; 0 0 1 1; 0 0 1 1; 0 0 1 1; 0 0 1 1" fill="freeze" /></path></g></g><g transform="matrix(1,0,0,1,181.75,73.473)"><g transform="matrix(1,0,0,1,-74.942,1.527)"><path d="M3,-7.25C3,-7.25,3,11.5,3,11.5C3,13.157,1.657,14.5,0,14.5C-1.657,14.5,-3,13.157,-3,11.5C-3,11.5,-3,-7.25,-3,-7.25C-3,-8.907,-1.657,-10.25,0,-10.25C1.657,-10.25,3,-8.907,3,-7.25Z" fill="currentColor"><animate repeatCount="indefinite" attributeName="d" dur="1.44s" begin="0s" calcMode="spline" values="M3,-7.25C3,-7.25,3,11.5,3,11.5C3,13.157,1.657,14.5,0,14.5C-1.657,14.5,-3,13.157,-3,11.5C-3,11.5,-3,-7.25,-3,-7.25C-3,-8.907,-1.657,-10.25,0,-10.25C1.657,-10.25,3,-8.907,3,-7.25Z; M3,-17C3,-17,3,17,3,17C3,18.657,1.657,20,0,20C-1.657,20,-3,18.657,-3,17C-3,17,-3,-17,-3,-17C-3,-18.657,-1.657,-20,0,-20C1.657,-20,3,-18.657,3,-17Z; M3,-2C3,-2,3,7.25,3,7.25C3,8.907,1.657,10.25,0,10.25C-1.657,10.25,-3,8.907,-3,7.25C-3,7.25,-3,-2,-3,-2C-3,-3.657,-1.657,-5,0,-5C1.657,-5,3,-3.657,3,-2Z; M3,-24.75C3,-24.75,3,21,3,21C3,22.657,1.657,24,0,24C-1.657,24,-3,22.657,-3,21C-3,21,-3,-24.75,-3,-24.75C-3,-26.407,-1.657,-27.75,0,-27.75C1.657,-27.75,3,-26.407,3,-24.75Z; M3,-17C3,-17,3,17,3,17C3,18.657,1.657,20,0,20C-1.657,20,-3,18.657,-3,17C-3,17,-3,-17,-3,-17C-3,-18.657,-1.657,-20,0,-20C1.657,-20,3,-18.657,3,-17Z; M3,-25.25C3,-25.25,3,26,3,26C3,27.657,1.657,29,0,29C-1.657,29,-3,27.657,-3,26C-3,26,-3,-25.25,-3,-25.25C-3,-26.907,-1.657,-28.25,0,-28.25C1.657,-28.25,3,-26.907,3,-25.25Z; M3,-2C3,-2,3,7.25,3,7.25C3,8.907,1.657,10.25,0,10.25C-1.657,10.25,-3,8.907,-3,7.25C-3,7.25,-3,-2,-3,-2C-3,-3.657,-1.657,-5,0,-5C1.657,-5,3,-3.657,3,-2Z" keyTimes="0; 0.166667; 0.333333; 0.5; 0.666667; 0.833333; 1" keySplines="0 0 1 1; 0 0 1 1; 0 0 1 1; 0 0 1 1; 0 0 1 1; 0 0 1 1" fill="freeze" /></path></g></g><g transform="matrix(1,0,0,1,193.875,73.473)"><g transform="matrix(1,0,0,1,-74.942,1.527)"><path d="M3,-17C3,-17,3,17,3,17C3,18.657,1.657,20,0,20C-1.657,20,-3,18.657,-3,17C-3,17,-3,-17,-3,-17C-3,-18.657,-1.657,-20,0,-20C1.657,-20,3,-18.657,3,-17Z" fill="currentColor"><animate repeatCount="indefinite" attributeName="d" dur="1.44s" begin="0s" calcMode="spline" values="M3,-17C3,-17,3,17,3,17C3,18.657,1.657,20,0,20C-1.657,20,-3,18.657,-3,17C-3,17,-3,-17,-3,-17C-3,-18.657,-1.657,-20,0,-20C1.657,-20,3,-18.657,3,-17Z; M3,-2C3,-2,3,7.25,3,7.25C3,8.907,1.657,10.25,0,10.25C-1.657,10.25,-3,8.907,-3,7.25C-3,7.25,-3,-2,-3,-2C-3,-3.657,-1.657,-5,0,-5C1.657,-5,3,-3.657,3,-2Z; M3,-17C3,-17,3,17,3,17C3,18.657,1.657,20,0,20C-1.657,20,-3,18.657,-3,17C-3,17,-3,-17,-3,-17C-3,-18.657,-1.657,-20,0,-20C1.657,-20,3,-18.657,3,-17Z; M3,-34.25C3,-34.25,3,30,3,30C3,31.657,1.657,33,0,33C-1.657,33,-3,31.657,-3,30C-3,30,-3,-34.25,-3,-34.25C-3,-35.907,-1.657,-37.25,0,-37.25C1.657,-37.25,3,-35.907,3,-34.25Z; M3,-17C3,-17,3,17,3,17C3,18.657,1.657,20,0,20C-1.657,20,-3,18.657,-3,17C-3,17,-3,-17,-3,-17C-3,-18.657,-1.657,-20,0,-20C1.657,-20,3,-18.657,3,-17Z; M3,-2C3,-2,3,7.25,3,7.25C3,8.907,1.657,10.25,0,10.25C-1.657,10.25,-3,8.907,-3,7.25C-3,7.25,-3,-2,-3,-2C-3,-3.657,-1.657,-5,0,-5C1.657,-5,3,-3.657,3,-2Z; M3,-17C3,-17,3,17,3,17C3,18.657,1.657,20,0,20C-1.657,20,-3,18.657,-3,17C-3,17,-3,-17,-3,-17C-3,-18.657,-1.657,-20,0,-20C1.657,-20,3,-18.657,3,-17Z" keyTimes="0; 0.166667; 0.333333; 0.5; 0.666667; 0.833333; 1" keySplines="0 0 1 1; 0 0 1 1; 0 0 1 1; 0 0 1 1; 0 0 1 1; 0 0 1 1" fill="freeze" /></path></g></g></svg>
+    </div>
+    <!-- Collapsed: the worker, and a cluster of who it has out on jobs. -->
+    <div id="agent-mini">
+      <i id="agent-mini-av"></i>
+      <div id="agent-mini-grid"></div>
+    </div>
+  </div>
+
+  <!-- Agents at work, shown in place of the player while any are running.
+       A header strip, then one card: who is working on the left, what they have
+       been doing on the right. -->
+  <div id="agents-panel">
+    <div id="ap-head">
+      <div id="ap-tabs">
+        <button class="ap-tab on" data-view="agents" aria-label="Agents">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 17l6-5-6-5"/><path d="M12 19h8"/></svg>
+        </button>
+        <button class="ap-tab" data-view="music" aria-label="Music">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="2.6"/><circle cx="18" cy="16" r="2.6"/></svg>
+        </button>
+      </div>
+      <span id="ap-count"></span>
+      <span id="ap-where"></span>
+    </div>
+    <!-- A session is blocked waiting on you. Shown over everything else. -->
+    <div class="ap-card" id="ap-perm">
+      <div id="ap-perm-top">
+        <i id="ap-perm-dot"></i>
+        <span id="ap-perm-where"></span>
+      </div>
+      <div id="ap-perm-who"></div>
+      <div id="ap-perm-row">
+        <span id="ap-perm-tool"></span>
+        <span id="ap-perm-sub"></span>
+      </div>
+      <div id="ap-perm-what"></div>
+      <div id="ap-perm-btns">
+        <button class="pm-btn primary" data-decision="allow">Allow</button>
+        <button class="pm-btn" data-decision="always">Always</button>
+        <button class="pm-btn" data-decision="deny">Deny</button>
+      </div>
+    </div>
+    <div class="ap-card" id="ap-body">
+      <div id="ap-side">
+        <i id="ap-av"></i>
+        <div id="ap-name"></div>
+        <div id="ap-src">Claude Code</div>
+        <div id="ap-steps"></div>
+      </div>
+      <div id="ap-main">
+        <!-- The code an edit actually wrote. Shown whenever the agent's latest
+             call was an edit; otherwise the ticker takes the space. -->
+        <div id="ap-diff">
+          <div id="ap-diff-head">
+            <span id="ap-diff-file"></span>
+            <i id="ap-diff-dot"></i>
+            <span id="ap-diff-path"></span>
+          </div>
+          <div id="ap-diff-body"></div>
+        </div>
+        <div id="ap-calls"></div>
+        <!-- One call, opened: the whole command and whatever came back. -->
+        <div id="ap-read">
+          <div id="ap-read-head">
+            <button id="ap-read-back" aria-label="Back">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4"
+                   stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+            </button>
+            <span id="ap-read-tool"></span>
+          </div>
+          <div id="ap-read-name"></div>
+          <div id="ap-read-scroll">
+            <pre id="ap-read-cmd"></pre>
+            <div id="ap-read-outlabel">OUTPUT</div>
+            <pre id="ap-read-out"></pre>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -810,7 +1601,21 @@ html,body {
 // ── Shape & Geometry ─────────────────────────────────────────────────────────
 function cv(n) { return parseFloat(getComputedStyle(document.documentElement).getPropertyValue(n)) || 0; }
 const EAR=()=>cv('--notch-ear'), CW=()=>cv('--notch-w'), CH=()=>cv('--notch-h'), CR=()=>cv('--notch-rb');
-const EW=()=>cv('--panel-w'),   EH=()=>cv('--panel-h'), ER=()=>cv('--panel-rb'), EE=()=>cv('--panel-ear');
+// Open size depends on what the panel is showing: agents need the wider box.
+// The agents view wants the big box; the player wants its own, even when agents
+// are running behind it.
+const agentsMode = () => {
+  const c = document.getElementById('notch-content').classList;
+  return c.contains('agents') && !c.contains('music');
+};
+const EW=()=>cv(agentsMode() ? '--agents-w' : '--panel-w');
+const EH=()=>{
+  const c = document.getElementById('notch-content').classList;
+  if (agentsMode()) return cv('--agents-h');
+  // With agents running the player shares the panel with the header above it.
+  return c.contains('music') ? cv('--music-h') : cv('--panel-h');
+};
+const ER=()=>cv('--panel-rb'), EE=()=>cv('--panel-ear');
 
 function makePath(nw,nh,ear,rb) {
   const lx=ear, rx=ear+nw, ex=ear*2+nw, r=Math.min(rb,nh*.48);
@@ -890,8 +1695,17 @@ function applyShape(nw,nh,rb,ear) {
 // the file for the wiring. All this part does is keep the pane sitting on the
 // panel's bottom edge and hand it a fresh desktop snapshot as the panel opens.
 const glassRootEl = document.getElementById('glass-root');
+const doneFlashEl = document.getElementById('done-flash');
+const permGlowEl  = document.getElementById('perm-glow');
 const glassBgEl   = document.getElementById('glass-bg');
 let glassShotPending = false;
+
+// Stop breathing once the fade-out has actually finished. If perm came back meanwhile, leave it.
+for (const ev of ['transitionend', 'transitioncancel']) {
+  permGlowEl.addEventListener(ev, e => {
+    if (e.target === permGlowEl && !contEl.classList.contains('perm')) permGlowEl.classList.add('idle');
+  });
+}
 
 function drawGlass(nw, nh, rb) {
   // The window sits at the top of the display and spans its width, so the
@@ -902,7 +1716,12 @@ function drawGlass(nw, nh, rb) {
   glassBgEl.style.width = `${innerWidth}px`;
   glassBgEl.style.height = `${screen.height}px`;
   // Bottom two corners only: the top of the notch is flush with the bezel.
-  glassRootEl.style.borderRadius = `0 0 ${radius.toFixed(1)}px ${radius.toFixed(1)}px`;
+  const rad = `0 0 ${radius.toFixed(1)}px ${radius.toFixed(1)}px`;
+  glassRootEl.style.borderRadius = rad;
+  // The finished wash is clipped to the same shape, or it paints square corners
+  // over the notch's rounded ones.
+  if (doneFlashEl) doneFlashEl.style.borderRadius = rad;
+  if (permGlowEl)  permGlowEl.style.borderRadius = rad;
   window.glassRefresh?.(radius);
 }
 
@@ -974,6 +1793,10 @@ function springTo(toW, toH, toRb, toEar, s) {
       curW=toW; curH=toH; curRb=toRb; curEar=toEar; velW=velH=velR=velE=0;
       applyShape(curW, curH, curRb, curEar);
       animId=null;
+      // The glass is only visible under .open: #glass-root fades out in 180 ms and
+      // the close spring settles in ~500 ms, so it is already invisible when its
+      // render loop stops here.
+      if (!isOpen) window.glassPause?.(true);
     } else animId=requestAnimationFrame(tick);
   })(last);
 }
@@ -986,12 +1809,20 @@ let chargingShowing=false;
 
 function openNotch() {
   if(isOpen) return; isOpen=true;
+  window.glassPause?.(false);
+  // An open that beats the arm timer (a click, or a permission card) grabs now,
+  // as before, and the timer can no longer fire a second grab under the panel.
+  if (glassArmTimer) { clearTimeout(glassArmTimer); glassArmTimer = null; armGlass(); }
   svgEl.classList.add('active','open');
   hitEl.classList.add('active','open');
   contEl.classList.add('open');
   document.getElementById('pill-art-glow').classList.add('panel-open');
   springTo(EW(),EH(),ER(),EE(),SPRING_OPEN);
-  window.api?.mouseEnter();
+  setInteractive(true);
+  // Armed here, not in hoverOpen: however the panel came to be open, the window
+  // is now swallowing clicks, and only this closes it again. Opening it any
+  // other way used to leave the whole top of the screen dead.
+  watchPointer();
 }
 function closeNotch() {
   if(!isOpen) return; isOpen=false;
@@ -1000,7 +1831,7 @@ function closeNotch() {
   contEl.classList.remove('open');
   document.getElementById('pill-art-glow').classList.remove('panel-open');
   springTo(CW(),CH(),CR(),EAR(),SPRING_CLOSE);
-  window.api?.mouseLeave();
+  setInteractive(false);
   // The snapshot is only good for this one opening; the desktop moves on. The
   // pane fades out with #glass-root, so it just needs the stale shot dropped.
   setTimeout(() => { if (!isOpen) glassBgEl.removeAttribute('src'); }, 400);
@@ -1013,12 +1844,34 @@ function closeNotch() {
 // real cursor is checked with the main process at the two moments that matter:
 // when the dwell is up, and while the notch is open.
 const HOVER_OPEN_MS  = 600;   // rest this long on the notch before it opens
+// A pointer passing over the notch is gone within ~150 ms, so the desktop grab
+// waits that long first. The helper grab takes tens of ms, so the shot is still
+// ready long before the dwell opens the panel.
+const GLASS_ARM_MS   = 150;
 const HOVER_GRACE_MS = 220;   // leeway on the way out, so a flick past the edge
                               // on the way to a button doesn't slam it shut
 const HOVER_POLL_MS  = 180;
 const HOVER_PAD      = 8;     // slack around the shape, in px
 
 let dwellTimer = null, graceTimer = null, watchTimer = null, openedByHover = false;
+let glassArmTimer = null;
+
+// The window spans the whole width of the display, so while it is interactive it
+// eats every click along the top of the screen. Keep it click-through except
+// when the pointer is actually over the panel. Forwarded moves still arrive
+// while it is click-through, which is what lets this switch back on.
+let interactive = false;
+function setInteractive(on) {
+  if (on === interactive) return;
+  interactive = on;
+  if (on) window.api?.mouseEnter(); else window.api?.mouseLeave();
+}
+function overContent(p) {
+  if (!p) return false;
+  const r = contEl.getBoundingClientRect();
+  return p.x >= r.left - HOVER_PAD && p.x <= r.right  + HOVER_PAD &&
+         p.y >= r.top  - HOVER_PAD && p.y <= r.bottom + HOVER_PAD;
+}
 
 function overNotch(p) {
   if (!p) return false;
@@ -1029,7 +1882,8 @@ function overNotch(p) {
 
 function cancelHoverTimers() {
   clearTimeout(dwellTimer); clearTimeout(graceTimer); clearInterval(watchTimer);
-  dwellTimer = graceTimer = watchTimer = null;
+  clearTimeout(glassArmTimer);
+  dwellTimer = graceTimer = watchTimer = glassArmTimer = null;
 }
 
 // Once it's open the pointer is watched directly: leaving the window while the
@@ -1038,13 +1892,17 @@ function cancelHoverTimers() {
 function watchPointer() {
   clearInterval(watchTimer);
   watchTimer = setInterval(async () => {
-    if (!isOpen || !openedByHover) { clearInterval(watchTimer); watchTimer = null; return; }
+    if (!isOpen) { clearInterval(watchTimer); watchTimer = null; return; }
+    // A blocked session is waiting on an answer: the panel stays until it gets
+    // one, however far the pointer has wandered.
+    if (contEl.classList.contains('perm')) { clearTimeout(graceTimer); graceTimer = null; return; }
     if (overNotch(await window.api?.cursorPoint?.())) { clearTimeout(graceTimer); graceTimer = null; return; }
     if (!graceTimer) graceTimer = setTimeout(() => { graceTimer = null; hoverClose(); }, HOVER_GRACE_MS);
   }, HOVER_POLL_MS);
 }
 
 function hoverClose() {
+  if (contEl.classList.contains('perm')) return;   // not while something is waiting
   cancelHoverTimers();
   openedByHover = false;
   closeNotch();
@@ -1059,16 +1917,20 @@ function hoverOpen() {
 
 document.addEventListener('mousemove', e => {
   if (chargingShowing) return;
+  // Open: only the panel itself takes clicks; everything else goes to whatever
+  // is underneath, so the top of the screen stays usable.
+  if (isOpen) setInteractive(overContent({ x: e.clientX, y: e.clientY }));
   if (!overNotch({ x: e.clientX, y: e.clientY })) {
     clearTimeout(dwellTimer); dwellTimer = null;
+    clearTimeout(glassArmTimer); glassArmTimer = null;
     return;
   }
   clearTimeout(graceTimer); graceTimer = null;
   if (isOpen || dwellTimer) return;
-  // Grab the desktop now, while the notch is still small: by the time the
+  // Grab the desktop early, while the notch is still small: by the time the
   // dwell is up the glass has something to refract, and the shot doesn't
   // contain the panel it's about to sit under.
-  armGlass();
+  glassArmTimer = setTimeout(() => { glassArmTimer = null; armGlass(); }, GLASS_ARM_MS);
   dwellTimer = setTimeout(async () => {
     dwellTimer = null;
     // The pointer may have left without another move to tell us.
@@ -1542,14 +2404,985 @@ setInterval(poll, 2000);
 
     setTimeout(() => {
       contEl.classList.remove('charging');
-      springTo(CW(), CH(), CR(), EAR(), SPRING_CLOSE);
+      // A permission card may have opened the notch during the hold; leave it open.
+      if (!isOpen) springTo(CW(), CH(), CR(), EAR(), SPRING_CLOSE);
       setTimeout(() => {
-        if (!hasMedia) svgEl.classList.remove('active');
+        if (!hasMedia && !isOpen) svgEl.classList.remove('active');
         document.getElementById('pill-art-glow').classList.remove('charging');
         chargingShowing = false;
       }, 340);
     }, CHARGE_HOLD_MS);
   }
+// ── Claude Code agents ────────────────────────────────────────────────────────
+// Snapshots arrive from the main process, which watches Claude Code's own files
+// (see agent-scan.js). Nothing here polls or costs anything; it just draws.
+(function () {
+  const miniEl  = document.getElementById('agent-mini');
+  const miniAv  = document.getElementById('agent-mini-av');
+  const miniGrid= document.getElementById('agent-mini-grid');
+  const avEl    = document.getElementById('ap-av');
+  const stepsEl = document.getElementById('ap-steps');
+  const callsEl = document.getElementById('ap-calls');
+  const countEl = document.getElementById('ap-count');
+  const whereEl = document.getElementById('ap-where');
+  const nameEl  = document.getElementById('ap-name');
+  const mainEl  = document.getElementById('ap-main');
+  const dFile   = document.getElementById('ap-diff-file');
+  const dPath   = document.getElementById('ap-diff-path');
+  const dBody   = document.getElementById('ap-diff-body');
+  if (!miniEl || !callsEl) return;
+
+  miniAv.className = 'agent-av';
+  avEl.className = 'agent-av';
+
+  const MAX_MINI  = 4;   // the cluster is a 2x2; past that it says how many more
+  const MAX_STEPS = 40;  // effectively all of them; the column scrolls
+
+  // Which agent is being looked at, and the last thing we were told, so pressing
+  // one can redraw without waiting for the next snapshot.
+  let picked = null;
+  let lastSnap = null;
+  // What the cluster, the step rows and the diff were last built from, and how
+  // many step labels wrap to a second line.
+  let lastMiniKey = '', lastStepsKey = '', lastDiffKey = '', stepsH = 0;
+  // Which agents were running last time, so a finish can be spotted.
+  let wasRunning = new Set();
+  const flashEl = document.getElementById('done-flash');
+
+  // Two views sharing one header: the agents, or the player.
+  for (const tab of document.querySelectorAll('.ap-tab')) {
+    tab.addEventListener('click', e => {
+      e.stopPropagation();
+      const music = tab.dataset.view === 'music';
+      contEl.classList.toggle('music', music);
+      for (const t of document.querySelectorAll('.ap-tab')) {
+        t.classList.toggle('on', t === tab);
+      }
+      if (isOpen) springTo(EW(), EH(), ER(), EE(), SPRING_OPEN);
+    });
+  }
+
+  function flashDone() {
+    if (!flashEl) return;
+    flashEl.classList.remove('go');
+    void flashEl.offsetWidth;        // restart the animation if it is mid-flight
+    flashEl.classList.add('go');
+  }
+
+  // A hue per worker, not a finished colour: the pill, its face and its label are
+  // all shades of the same one, so a chip reads as a single thing. Known types
+  // are pinned; anything new gets a stable hue from its name.
+  const TYPE_HUE = {
+    session:           32,    // the session itself, in Claude's own warmth
+    orchestrator:      214,
+    builder:           145,
+    'qa-tester':        34,
+    reviewer:          282,
+    'general-purpose': 192,
+    Explore:           342,
+    Plan:               48,
+  };
+  function hueFor(type) {
+    if (TYPE_HUE[type] != null) return TYPE_HUE[type];
+    let h = 0;
+    for (let i = 0; i < type.length; i++) h = (h * 31 + type.charCodeAt(i)) % 360;
+    return h;
+  }
+
+  const SVG = 'http://www.w3.org/2000/svg';
+
+  // The pixel character. Body, eyes and a scan beam, all one viewBox so it
+  // scales cleanly from the 17px pill mark to the 74px panel one.
+  const CL_BODY = 'M 100 150 H 400 V 375 H 350 V 425 H 310 V 375 H 280 V 425 '
+    + 'H 240 V 375 H 220 V 425 H 180 V 375 H 150 V 425 H 110 V 375 H 100 Z '
+    + 'M 50 225 H 100 V 285 H 50 Z M 400 225 H 450 V 285 H 400 Z';
+  const CL_EYES = [
+    { x: 170, y: 215, w: 35, h: 60 },
+    { x: 295, y: 215, w: 35, h: 60 },
+  ];
+
+  // The gradient and the mask are identical for every copy, so they are defined
+  // once in a hidden svg and referenced by id rather than duplicated per mark.
+  (function defsOnce() {
+    if (document.getElementById('cl-defs')) return;
+    const holder = document.createElementNS(SVG, 'svg');
+    holder.setAttribute('id', 'cl-defs');
+    holder.setAttribute('width', '0');
+    holder.setAttribute('height', '0');
+    holder.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden';
+    const defs = document.createElementNS(SVG, 'defs');
+
+    const grad = document.createElementNS(SVG, 'linearGradient');
+    grad.setAttribute('id', 'clScan');
+    grad.setAttribute('x1', '0%'); grad.setAttribute('y1', '0%');
+    grad.setAttribute('x2', '0%'); grad.setAttribute('y2', '100%');
+    for (const [off, col, op] of [['0%', '#d97757', '.2'], ['50%', '#ffffff', '.9'], ['100%', '#d97757', '.2']]) {
+      const st = document.createElementNS(SVG, 'stop');
+      st.setAttribute('offset', off);
+      st.setAttribute('stop-color', col);
+      st.setAttribute('stop-opacity', op);
+      grad.appendChild(st);
+    }
+
+    // Keeps the beam inside the character instead of sweeping the whole box.
+    const mask = document.createElementNS(SVG, 'mask');
+    mask.setAttribute('id', 'clMask');
+    const mp = document.createElementNS(SVG, 'path');
+    mp.setAttribute('d', CL_BODY);
+    mp.setAttribute('fill', '#ffffff');
+    mask.appendChild(mp);
+
+    defs.append(grad, mask);
+    holder.appendChild(defs);
+    document.body.appendChild(holder);
+  })();
+
+  function claudeMark() {
+    const svg = document.createElementNS(SVG, 'svg');
+    svg.setAttribute('viewBox', '0 0 500 500');
+
+    const g = document.createElementNS(SVG, 'g');
+    g.setAttribute('class', 'body');
+    const body = document.createElementNS(SVG, 'path');
+    body.setAttribute('d', CL_BODY);
+    g.appendChild(body);
+    for (const e of CL_EYES) {
+      const eye = document.createElementNS(SVG, 'rect');
+      eye.setAttribute('class', 'eye');
+      eye.setAttribute('x', e.x); eye.setAttribute('y', e.y);
+      eye.setAttribute('width', e.w); eye.setAttribute('height', e.h);
+      g.appendChild(eye);
+    }
+    svg.appendChild(g);
+
+    const scan = document.createElementNS(SVG, 'rect');
+    scan.setAttribute('class', 'scan');
+    scan.setAttribute('x', '0'); scan.setAttribute('y', '0');
+    scan.setAttribute('width', '500'); scan.setAttribute('height', '60');
+    scan.setAttribute('mask', 'url(#clMask)');
+    svg.appendChild(scan);
+
+    return svg;
+  }
+
+  // One each, built once and then left alone.
+  miniAv.appendChild(claudeMark());
+  avEl.appendChild(claudeMark());
+  setMarkState('idle');
+
+  // response is a moment, not a condition, so it holds briefly then releases.
+  let respUntil = 0;
+  function setMarkState(state) {
+    miniAv.dataset.state = state;
+    avEl.dataset.state = state;
+  }
+  // How recently the agent touched its log decides thinking vs processing. This
+  // is real activity, not a timer pretending to be one.
+  const BUSY_MS = 3000;
+  function markStateFor(live) {
+    if (Date.now() < respUntil) return 'running';   // the finish still reads as work
+    if (!live.length) return 'idle';
+    return live.some(a => a.state === 'running' && a.idleMs < BUSY_MS)
+      ? 'running' : 'thinking';
+  }
+  // The status mark beside each agent: a filled tick once it is done, a turning
+  // ring while it works, a hollow circle before it has started.
+  // Which orb suits the work. A search looks nothing like a rewrite, and the
+  // mark may as well say which is happening.
+  const ORB_FOR_TOOL = {
+    Grep: 'searching', Glob: 'searching', WebSearch: 'searching', WebFetch: 'searching',
+    Read: 'listening', NotebookEdit: 'composing',
+    Edit: 'composing', Write: 'composing', MultiEdit: 'composing',
+    Agent: 'connecting', Task: 'connecting', Skill: 'connecting',
+    Bash: 'working', PowerShell: 'working',
+  };
+
+  const ORB_PX = 20;               // the smallest preset the library ships
+  // ...but the canvas can be bigger than the preset it was tuned for, and at
+  // pill size 20px was easy to miss entirely.
+  const ORB_DRAW = 26;             // in the collapsed pill
+  const ORB_ROW = 22;              // beside an agent in the list
+  const orbs = new Set();          // every canvas currently being painted
+  let orbRaf = null;
+
+  function paintOrbs(now) {
+    orbRaf = null;
+    if (!orbs.size) return;
+    const t = now / 1000;
+    for (const o of orbs) {
+      if (!o.canvas.isConnected) { orbs.delete(o); continue; }
+      // Inside the closed panel the canvas is display:none. Drawing is time-based,
+      // so a skipped frame never shows.
+      if (o.canvas.checkVisibility && !o.canvas.checkVisibility()) continue;
+      const ctx = o.canvas.getContext('2d');
+      if (!ctx) continue;
+      ctx.clearRect(0, 0, o.canvas.width, o.canvas.height);
+      ctx.save();
+      ctx.scale(o.dpr, o.dpr);
+      MODE_DRAWS_SAFE(o.mode)(ctx, ORB_PX, t * o.speed, true, o.opts);
+      ctx.restore();
+    }
+    if (orbs.size) orbRaf = requestAnimationFrame(paintOrbs);
+  }
+  const MODE_DRAWS_SAFE = mode =>
+    (window.Orbs && window.Orbs.MODE_DRAWS[mode]) || (() => {});
+
+  function makeOrb(tool, px) {
+    if (!window.Orbs) return null;
+    const size = px || ORB_ROW;
+    const state = ORB_FOR_TOOL[tool] || 'working';
+    let preset;
+    try { preset = window.Orbs.resolvePreset(state, ORB_PX); } catch { return null; }
+    const dpr = devicePixelRatio || 1;
+    const canvas = document.createElement('canvas');
+    canvas.className = 'orb';
+    canvas.width = size * dpr;
+    canvas.height = size * dpr;
+    canvas.style.width = size + 'px';
+    canvas.style.height = size + 'px';
+    // The preset is tuned for 20; scaling the whole context keeps its
+    // proportions while filling a larger box.
+    orbs.add({ canvas, dpr: dpr * (size / ORB_PX), mode: preset.mode,
+               speed: preset.speed, opts: preset.opts });
+    // One loop drives every orb on screen, rather than one timer each.
+    if (!orbRaf) orbRaf = requestAnimationFrame(paintOrbs);
+    return canvas;
+  }
+
+  function stepMark(state, tool) {
+    const wrap = document.createElement('i');
+    wrap.className = 'mark' + (state === 'running' ? ' spin' : '');
+    if (state === 'running') {
+      const orb = makeOrb(tool);
+      if (orb) { wrap.className = 'mark orb-mark'; wrap.appendChild(orb); return wrap; }
+    }
+    const svg = document.createElementNS(SVG, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+
+    if (state === 'done' || state === 'stopped') {
+      const c = document.createElementNS(SVG, 'circle');
+      c.setAttribute('cx', '12'); c.setAttribute('cy', '12'); c.setAttribute('r', '10');
+      c.setAttribute('fill', state === 'done' ? '#34d399' : '#5f646d');
+      const t = document.createElementNS(SVG, 'path');
+      t.setAttribute('d', 'M7.5 12.4l3 3 6-6.4');
+      t.setAttribute('fill', 'none');
+      t.setAttribute('stroke', '#0b0c0e');
+      t.setAttribute('stroke-width', '3.2');
+      t.setAttribute('stroke-linecap', 'round');
+      t.setAttribute('stroke-linejoin', 'round');
+      svg.append(c, t);
+    } else if (state === 'running') {
+      // An open arc, so the spin is visible.
+      const ring = document.createElementNS(SVG, 'circle');
+      ring.setAttribute('cx', '12'); ring.setAttribute('cy', '12'); ring.setAttribute('r', '9');
+      ring.setAttribute('fill', 'none');
+      ring.setAttribute('stroke', '#ffffff');
+      ring.setAttribute('stroke-width', '3');
+      ring.setAttribute('stroke-linecap', 'round');
+      ring.setAttribute('stroke-dasharray', '38 18');
+      svg.appendChild(ring);
+    } else {
+      const c = document.createElementNS(SVG, 'circle');
+      c.setAttribute('cx', '12'); c.setAttribute('cy', '12'); c.setAttribute('r', '9');
+      c.setAttribute('fill', 'none');
+      c.setAttribute('stroke', state === 'stalled' ? '#f5a524' : '#3a3e45');
+      c.setAttribute('stroke-width', '2.8');
+      svg.appendChild(c);
+    }
+    wrap.appendChild(svg);
+    return wrap;
+  }
+
+  const secs = ms => ms < 1000 ? '0s' : ms < 60000 ? `${Math.round(ms / 1000)}s`
+                                                   : `${Math.floor(ms / 60000)}m`;
+
+  // Pressing an agent points the right-hand column at its work.
+  function pick(id) {
+    picked = (picked === id) ? null : id;
+    render(lastSnap);
+  }
+  function clickable(el, id) {
+    el.addEventListener('click', e => { e.stopPropagation(); pick(id); });
+  }
+
+  function render(snap) {
+    lastSnap = snap;
+    const sessions = (snap && snap.sessions) || [];
+    const all = sessions.reduce((acc, x) => acc.concat(x.agents), []);
+    // Anything that was working and now is not has finished; show it either way,
+    // open or shut.
+    const nowRunning = new Set(all.filter(a => a.state === 'running').map(a => a.id));
+    // Only a real finish counts. An agent that vanishes from the snapshot — its
+    // session closed or was killed — used to set off the same celebration.
+    const finished = all.some(a => a.state === 'done' && wasRunning.has(a.id));
+    if (finished && wasRunning.size) {
+      flashDone();
+      respUntil = Date.now() + 850;      // one pass of the response animation
+      setTimeout(() => render(lastSnap), 900);
+    }
+    wasRunning = nowRunning;
+    const agents = sessions.reduce((acc, s) => acc.concat(
+      s.agents.map(a => Object.assign({ project: s.project }, a))), []);
+    // Finished work is history the moment nothing is live, so the notch only
+    // takes over the panel while something is actually in flight.
+    // A finished session stays up for a while — its last turn is exactly what you
+    // want to read once it stops. An agent is a step inside that work, so it
+    // leaves as soon as it is done and the session row carries the result.
+    const LINGER_MS = 150000;
+    const live = agents.filter(a =>
+      a.state === 'running' || a.state === 'stalled' ||
+      (a.isSession && a.state === 'done' && a.idleMs < LINGER_MS));
+
+    // Switching views changes how wide the panel wants to be, so an open panel
+    // has to grow or shrink to match rather than clipping its new contents.
+    const was = contEl.classList.contains('agents');
+    // A request in flight keeps the panel open and sized, even with no agents.
+    contEl.classList.toggle('agents', live.length > 0 || contEl.classList.contains('perm'));
+    if (was !== contEl.classList.contains('agents') && isOpen) {
+      springTo(EW(), EH(), ER(), EE(), SPRING_OPEN);
+    }
+
+    if (!live.length) {
+      // The ticker's own bookkeeping has to go with the DOM it describes, or the
+      // next agent whose first call matches is diffed against a column that is
+      // no longer there.
+      tickKey = ''; tickOwner = null; tickFollow = true;
+      if (openCall) openRow(null);
+      lastMiniKey = lastStepsKey = lastDiffKey = ''; stepsH = 0;
+      setMarkState(markStateFor(live)); contEl.classList.remove('music'); miniGrid.textContent = ''; stepsEl.textContent = ''; callsEl.textContent = ''; return; }
+
+    // The job is the top-level work; the workers are what it handed out. With no
+    // nesting there is only one level, so the lead doubles as the job line.
+    const leads   = live.filter(a => a.depth <= 1);
+    const workers = live.filter(a => a.depth > 1);
+    const crew    = workers.length ? workers : leads;
+
+    // ── collapsed: the worker, and the crew clustered beside it ──
+    // Closed, one orb says more than a grid of dots: it shows the kind of work
+    // under way, and the count sits beside it.
+    // Rebuilt only when what it draws has changed, so a snapshot that moved
+    // nothing here leaves the running orb alone.
+    const lead = crew.find(a => a.state === 'running') || crew[0];
+    const miniKey = (lead && window.Orbs ? 'orb:' + (lead.activity || '')
+      : 'dots:' + crew.slice(0, MAX_MINI).map(a => a.state + ':' + a.type).join(','))
+      + '|' + crew.length + '|' + devicePixelRatio;
+    if (miniKey !== lastMiniKey) {
+      lastMiniKey = miniKey;
+      miniGrid.textContent = '';
+      const orb = lead ? makeOrb(lead.activity, ORB_DRAW) : null;
+      if (orb) {
+        miniGrid.appendChild(orb);
+      } else {
+        for (const a of crew.slice(0, MAX_MINI)) {
+          const d = document.createElement('i');
+          d.className = a.state;
+          d.style.setProperty('--h', hueFor(a.type));
+          miniGrid.appendChild(d);
+        }
+      }
+      if (crew.length > 1) {
+        const n = document.createElement('span');
+        n.className = 'ad-more';
+        n.textContent = String(crew.length);
+        miniGrid.appendChild(n);
+      }
+    }
+    // The worker itself shows the mood of the job: red once anything is stuck.
+    const trouble = live.some(a => a.state === 'stalled');
+    miniAv.className = 'agent-av' + (trouble ? ' bad' : '');
+    avEl.className = 'agent-av' + (trouble ? ' bad' : '');
+    setMarkState(markStateFor(live));
+
+    // ── open: the strip above the card ──
+    const projects = [...new Set(live.map(a => a.project).filter(Boolean))];
+    countEl.textContent = live.length === 1 ? '1 agent working'
+                                            : live.length + ' agents working';
+    whereEl.textContent = projects.length === 1 ? projects[0]
+                        : projects.length > 1   ? projects.length + ' projects'
+                        : '';
+
+    // ── open, left of the card: the agents, one line each ──
+    // The one in focus feeds the right-hand column. Pressing another moves it;
+    // left alone it follows whatever is actually running.
+    // Every agent that is live, not just the top-level ones: with two
+    // orchestrators running, listing only those hid the eight doing the work.
+    // Grouped: each session's own row, then the agents it started, indented
+    // beneath it. A flat list gave no clue which chat a given agent belonged to.
+    const ordered = [];
+    for (const sess of sessions) {
+      const mine = live.filter(a => sess.agents.some(x => x.id === a.id));
+      if (!mine.length) continue;
+      // Its own row heads the group whether or not it passed the live filter, so
+      // every agent sits under the chat that actually started it.
+      const head = mine.find(a => a.isSession)
+                || sess.agents.find(a => a.isSession);
+      if (head) ordered.push(head);
+      for (const a of mine) if (!a.isSession) ordered.push(a);
+    }
+    const steps = ordered.slice(0, MAX_STEPS);
+    const focus = live.find(a => a.id === picked)
+               || steps.find(a => a.state === 'running')
+               || steps[0] || live[0];
+    if (picked && !live.some(a => a.id === picked)) picked = null;
+    const nowAt = Math.max(0, steps.indexOf(focus));
+    // Same rule as the cluster: the rows (and their orbs) are rebuilt only when
+    // something they show has moved.
+    const stepsKey = steps.map(a => [a.id, a.state, a.activity || '', a.description].join('\u0001')).join('\u0002')
+      + '|' + nowAt + '|' + (live.length - steps.length) + '|' + !!window.Orbs + '|' + devicePixelRatio;
+    if (stepsKey !== lastStepsKey) {
+      lastStepsKey = stepsKey;
+      stepsEl.textContent = '';
+      steps.forEach((a, i) => {
+        const row = document.createElement('div');
+        row.className = 'ap-step' + (i === nowAt ? ' now' : '')
+                    + (a.isSession ? ' is-session' : ' under-session');
+        const tick = stepMark(a.state, a.activity);
+        const lbl = document.createElement('span');
+        lbl.className = 'lbl';
+        lbl.textContent = a.description;
+        // No title attribute: the OS tooltip it summons is a grey box that draws
+        // outside the notch entirely.
+        row.append(tick, lbl);
+        clickable(row, a.id);
+        stepsEl.appendChild(row);
+      });
+      // Ten agents must not silently become three.
+      const hidden = live.length - steps.length;
+      if (hidden > 0) {
+        const more = document.createElement('div');
+        more.className = 'ap-more-row';
+        more.textContent = '+' + hidden + ' more';
+        stepsEl.appendChild(more);
+      }
+      stepsH = stepsHeight(steps, nowAt, hidden > 0);
+    }
+
+    // -- open, right of the card: the ticker --
+    // Rows keep their identity between snapshots, so when a new call lands the
+    // existing ones slide up instead of the whole column redrawing.
+    nameEl.textContent = focus ? focus.description : '';
+
+    // The newest call decides what the right-hand side shows: the code, when it
+    // just wrote some, and the running ticker otherwise.
+    const newest = (focus && focus.recent && focus.recent[0]) || null;
+    const diff = newest && newest.diff;
+    mainEl.classList.toggle('diffing', !!diff);
+    // Off the diff, its key goes too, so coming back to the same diff rebuilds it.
+    if (diff) showDiff(newest); else { lastDiffKey = ''; syncTicker(focus); }
+
+    // After paint: scrollHeight is only meaningful once the rows are really in.
+    const calls = Math.min(((focus && focus.recent) || []).length, ROWS);
+    setPanelHeight(fitHeight(stepsH, calls, !!diff));
+  }
+
+  // ── how tall to be ──────────────────────────────────────────────────────────
+  // The panel is sized to what it actually holds. A fixed height left most of the
+  // card empty whenever an agent had only a couple of calls behind it.
+  const H_HEAD = 34, H_PAD = 30, H_ROW = 22;
+  // Arithmetic rather than measurement: scrollHeight through two nested flex
+  // columns reported the column as a third of its real size, and the panel then
+  // opened too short for its own contents. (The panel is display:none until it
+  // opens, so there is nothing to measure at the moment the size is needed anyway.)
+  // The left column, measured in the app: the panel's own chrome (9px + 23px header
+  // + 8px gap + 12px) is 52, #ap-side's padding 30, the mark 74 + 12, the name 18,
+  // the source 13 + 2, the gap above the list 16. The old sum assumed 16px rows and
+  // 64px of chrome, which left the last agent row (and with one agent, the only one)
+  // below the fold.
+  const H_LEFT_FIXED = 52 + 30 + 74 + 12 + 18 + 15 + 16;
+  // A row is as tall as its mark (an orb is 22px pulled up 2px, a flat mark 16px
+  // pushed down 1px) or its label, whichever is taller; rows sit 9px apart. The
+  // label is clamped to two 12.5px/1.25 lines.
+  const H_ROW_ORB = 20, H_ROW_MARK = 17, H_LINE = 12.5 * 1.25, H_STEP_GAP = 9;
+  const H_MORE = 2 + 11 * 1.3;   // the "+N more" line: 2px margin, 11px/1.3
+  // Width of the label: #ap-side is 186px less 17+15 padding, less the 9px gap and
+  // the mark (16px, or an orb's 22px pulled 3px left).
+  const LBL_W = 186 - 17 - 15 - 9;
+  let measureCtx = null;
+  const fontsAsked = new Set();
+  function labelWraps(text, bold, orb) {
+    if (!/\s/.test(text)) return false;      // a single word is clipped, never wrapped
+    measureCtx = measureCtx || document.createElement('canvas').getContext('2d');
+    const font = (bold ? 700 : 600) + ' 12.5px ' + getComputedStyle(document.documentElement).getPropertyValue('--font');
+    // The panel is hidden until opened, so its weights may not be loaded yet; measure with the
+    // fallback for now and measure again once the real face is in.
+    if (!document.fonts.check(font) && !fontsAsked.has(font)) {
+      fontsAsked.add(font);
+      document.fonts.load(font).then(() => { lastStepsKey = ''; if (lastSnap) render(lastSnap); }, () => {});
+    }
+    measureCtx.font = font;
+    return measureCtx.measureText(text).width > LBL_W - (orb ? 19 : 16);
+  }
+  // Height of the list just built in stepsEl, one entry per agent in steps.
+  function stepsHeight(steps, nowAt, more) {
+    let h = 0;
+    steps.forEach((a, i) => {
+      const mark = stepsEl.children[i] && stepsEl.children[i].firstChild;
+      const orb = !!(mark && mark.classList.contains('orb-mark'));
+      const lines = labelWraps(a.description, i === nowAt, orb) ? 2 : 1;
+      h += Math.max(orb ? H_ROW_ORB : H_ROW_MARK, lines * H_LINE) + (i ? H_STEP_GAP : 0);
+    });
+    if (more) h += H_STEP_GAP + H_MORE;
+    return h;
+  }
+  function fitHeight(stepsH, callCount, hasDiff) {
+    const left  = H_LEFT_FIXED + stepsH;
+    // The right column scrolls by design, so its old estimate stands.
+    // Off the diff the rows are already laid out, so ask them how tall they are
+    // instead of guessing a row height: a closing message runs to any length and
+    // the guess would leave it to be scrolled for. Still capped below.
+    const rows = hasDiff ? 238 : Math.max(Math.max(callCount, 2) * H_ROW + 4, callsEl.scrollHeight);
+    const right = rows + H_PAD + H_HEAD;
+    return Math.round(Math.min(420, Math.max(128, left, right)));
+  }
+  function setPanelHeight(h) {
+    const root = document.documentElement;
+    if (root.style.getPropertyValue('--agents-h') === h + 'px') return;
+    root.style.setProperty('--agents-h', h + 'px');
+    // Grow or shrink into the new size rather than jumping to it.
+    if (isOpen && agentsMode()) {
+      springTo(EW(), EH(), ER(), EE(), SPRING_OPEN);
+    }
+  }
+
+  // ── the diff ────────────────────────────────────────────────────────────────
+  // Deleted lines first, then the added ones, the way a hunk reads. Line numbers
+  // are relative: the snapshot carries the text, not where it sat in the file.
+  function showDiff(call) {
+    // Every snapshot names the newest call again; the same diff is already drawn.
+    const k = JSON.stringify([call.id, call.tool, call.label, call.diff]);
+    if (k === lastDiffKey) return;
+    lastDiffKey = k;
+    dFile.textContent = call.label || 'file';
+    dPath.textContent = call.tool === 'Write' ? 'written' : 'edited';
+    dBody.textContent = '';
+
+    const rows = [];
+    for (const line of (call.diff.removed || [])) rows.push(['del', '-', line]);
+    for (const line of (call.diff.added   || [])) rows.push(['add', '+', line]);
+
+    let n = 1;
+    for (const [kind, sign, code] of rows) {
+      const row = document.createElement('div');
+      row.className = 'dl ' + kind;
+      const ln = document.createElement('span');
+      ln.className = 'ln'; ln.textContent = String(n++);
+      const sg = document.createElement('span');
+      sg.className = 'sg'; sg.textContent = sign;
+      const cd = document.createElement('span');
+      cd.className = 'cd'; cd.textContent = code === '' ? ' ' : code;
+      row.append(ln, sg, cd);
+      dBody.appendChild(row);
+    }
+    // A new file lands with nothing to compare against.
+    if (!rows.length) {
+      const row = document.createElement('div');
+      row.className = 'dl';
+      const cd = document.createElement('span');
+      cd.className = 'cd'; cd.style.paddingLeft = '14px';
+      cd.textContent = 'no changes captured';
+      row.appendChild(cd);
+      dBody.appendChild(row);
+    }
+  }
+
+  // ── one call, opened ─────────────────────────────────────────────────────────
+  const readEl  = document.getElementById('ap-read');
+  const readTool = document.getElementById('ap-read-tool');
+  const readName = document.getElementById('ap-read-name');
+  const readCmd = document.getElementById('ap-read-cmd');
+  const readOut = document.getElementById('ap-read-out');
+  let openCall = null;
+
+  callsEl.addEventListener('scroll', () => {
+    tickFollow = callsEl.scrollTop + callsEl.clientHeight >= callsEl.scrollHeight - 24;
+  });
+
+  document.getElementById('ap-read-back').addEventListener('click', e => {
+    e.stopPropagation();
+    openRow(null);
+  });
+
+  function openRow(call, row) {
+    for (const r of callsEl.querySelectorAll('.tick-row.shown')) r.classList.remove('shown');
+    openCall = call;
+    mainEl.classList.toggle('reading', !!call);
+    if (!call) return;
+    if (row) row.classList.add('shown');
+    readTool.textContent = call.tool.toUpperCase();
+    readName.textContent = call.label || call.tool;
+    readCmd.textContent = call.detail || '';
+    readOut.textContent = call.output || (call.failed ? 'failed' : 'no output captured');
+    readOut.style.color = call.failed ? '#ff8d97' : '';
+  }
+
+  // ── the ticker ──────────────────────────────────────────────────────────────
+  const ROW_H = 22, ROWS = 5;
+  const COMPLETED_SCALE = 0.885;   // 11.5/13, the completed font size
+  let tickKey = '';                // what is on screen now
+  let tickOwner = null;            // whose calls are showing
+  let tickFollow = true;           // following the newest, until you scroll off it
+
+  function tickRow(call) {
+    const row = document.createElement('div');
+    row.className = 'tick-row';
+
+    // The closing message has no tool behind it, so it is drawn as the message it
+    // is rather than as a row with an empty command beside a made-up tool name.
+    if (call.tool === 'Done') {
+      const only = document.createElement('div');
+      only.className = 'tick-group tick-final';
+      const say = document.createElement('div');
+      say.className = 'tick-say';
+      writeSay(say, call.say || '');
+      only.appendChild(say);
+      return only;
+    }
+
+    const mark = document.createElement('i');
+    mark.className = 'tick-mark';
+    mark.append(markSvg(TOOL_ICON[call.tool] || TOOL_FALLBACK, 'chev'),
+                markSvg('M5 13l4 4 10-10', 'tick'));
+
+    const b = document.createElement('b');
+    b.textContent = call.tool;
+
+    const txt = document.createElement('span');
+    txt.className = 'txt';
+    txt.textContent = call.label || '';
+
+    row.append(mark, b, txt);
+    // The whole command, and whatever came back, for when a line is opened.
+    if (call.detail || call.output) {
+      row.classList.add('can-open');
+      row.addEventListener('click', e => {
+        e.stopPropagation();
+        openRow(row.classList.contains('shown') ? null : call, row);
+      });
+    }
+
+    if (call.delta && (call.delta.added || call.delta.removed)) {
+      const d = document.createElement('span');
+      d.className = 'delta';
+      if (call.delta.added) {
+        const a = document.createElement('i');
+        a.className = 'add'; a.textContent = '+' + call.delta.added; d.appendChild(a);
+      }
+      if (call.delta.removed) {
+        const r = document.createElement('i');
+        r.className = 'del'; r.textContent = '-' + call.delta.removed; d.appendChild(r);
+      }
+      row.appendChild(d);
+    }
+
+    // The narration wraps the finished row, rather than replacing it. Returning
+    // the group early used to skip everything above, so any call that came with
+    // the agent's own words silently lost its badge and could not be opened.
+    if (call.say) {
+      const say = document.createElement('div');
+      say.className = 'tick-say';
+      writeSay(say, call.say);
+      const group = document.createElement('div');
+      group.className = 'tick-group';
+      group.append(say, row);
+      return group;
+    }
+    return row;
+  }
+
+  // A mark per tool, so a glance says what kind of work it was.
+  const TOOL_ICON = {
+    Bash:        'M4 17l6-5-6-5M12 19h8',
+    PowerShell:  'M4 17l6-5-6-5M12 19h8',
+    Read:        'M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8zM14 3v5h5',
+    Write:       'M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z',
+    Edit:        'M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z',
+    MultiEdit:   'M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z',
+    Grep:        'M11 19a8 8 0 100-16 8 8 0 000 16zM21 21l-4.3-4.3',
+    Glob:        'M11 19a8 8 0 100-16 8 8 0 000 16zM21 21l-4.3-4.3',
+    WebFetch:    'M12 21a9 9 0 100-18 9 9 0 000 18zM3 12h18M12 3a15 15 0 010 18a15 15 0 010-18',
+    WebSearch:   'M12 21a9 9 0 100-18 9 9 0 000 18zM3 12h18M12 3a15 15 0 010 18a15 15 0 010-18',
+    Agent:       'M12 3l2.1 5.3L20 9.4l-4 3.9.9 5.7-4.9-2.7-4.9 2.7.9-5.7-4-3.9 5.9-1.1z',
+    Task:        'M12 3l2.1 5.3L20 9.4l-4 3.9.9 5.7-4.9-2.7-4.9 2.7.9-5.7-4-3.9 5.9-1.1z',
+    Skill:       'M12 3l2.1 5.3L20 9.4l-4 3.9.9 5.7-4.9-2.7-4.9 2.7.9-5.7-4-3.9 5.9-1.1z',
+  };
+  const TOOL_FALLBACK = 'M5 12h14';
+
+  function markSvg(d, cls) {
+    const svg = document.createElementNS(SVG, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('class', cls);
+    const path = document.createElementNS(SVG, 'path');
+    path.setAttribute('d', d);
+    path.setAttribute('fill', 'none');
+    // currentColor, so the stylesheet decides; the colour was duplicated here
+    // and in the CSS, and only one of the two ever won.
+    path.setAttribute('stroke', 'currentColor');
+    path.setAttribute('stroke-width', '3.4');
+    path.setAttribute('stroke-linecap', 'round');
+    path.setAttribute('stroke-linejoin', 'round');
+    svg.appendChild(path);
+    return svg;
+  }
+
+  // The narration is written as markdown, so a name in backticks is meant to be
+  // read as code. Built as nodes rather than markup: this text comes out of a
+  // log and is never trusted as HTML.
+  // A closing message is written as markdown, so it arrives with blank lines,
+  // bullets and links in it. Rendered as one flat string it reads as a wall with
+  // [label](url) sitting in the middle of it, which is what it used to do. This
+  // walks the lines and builds blocks: a paragraph per run of lines, a row per
+  // bullet, a bold line per heading. Everything is built as nodes -- this text
+  // comes off a log and is never handed to the DOM as markup.
+  const MD_BULLET = /^\s*(?:[-*•]|\d+\.)\s+/;
+  const MD_HEAD   = /^\s*#{1,6}\s+/;
+  // [label](url), with one level of brackets allowed inside the url.
+  const MD_LINK   = /\[([^\]]+)\]\((?:[^()\s]|\([^()]*\))*\)/g;
+
+  function writeSay(host, text) {
+    const lines = String(text).replace(/\r/g, '').split('\n');
+    let para = null;
+    for (const line of lines) {
+      if (!line.trim()) { para = null; continue; }     // a blank line ends the block
+      const bullet = MD_BULLET.exec(line);
+      const head   = bullet ? null : MD_HEAD.exec(line);
+      if (bullet || head || !para) {
+        para = document.createElement('div');
+        para.className = bullet ? 'say-li' : head ? 'say-h' : 'say-p';
+        host.appendChild(para);
+      } else {
+        // A wrapped line belongs to the sentence above it, not under it.
+        para.appendChild(document.createTextNode(' '));
+      }
+      writeInline(para, line.slice((bullet || head || [''])[0].length));
+      if (bullet || head) para = null;
+    }
+    // Nothing recognisable in it: show it as it was written rather than nothing.
+    // A message that is only whitespace has nothing to show either way.
+    if (!host.childNodes.length && String(text).trim()) host.textContent = String(text);
+  }
+
+  // `code`, **bold** and links, within one line.
+  function writeInline(host, text) {
+    const parts = text.split('`');
+    // An odd marker means a code span was never closed; leave the line alone
+    // rather than swallowing the rest of it as code.
+    if (parts.length % 2 === 0) { writeBold(host, text.replace(MD_LINK, '$1')); return; }
+    parts.forEach((part, i) => {
+      if (!part) return;
+      // Odd indexes sat between a pair of backticks, and are literal by
+      // definition -- markdown does not format inside code.
+      if (i % 2 === 1) {
+        const code = document.createElement('code');
+        code.textContent = part;
+        host.appendChild(code);
+      } else {
+        // Only a link's label is worth the width; nothing here is clickable.
+        writeBold(host, part.replace(MD_LINK, '$1'));
+      }
+    });
+  }
+
+  // **emphasis** the way the narration is written, so the point of a line reads
+  // first. Everything is built as nodes; this text comes from a log and is never
+  // handed to the DOM as markup.
+  function writeBold(host, text) {
+    const bits = text.split('**');
+    // An odd marker means it was never closed: leave the text as it was typed.
+    if (bits.length % 2 === 0) { host.appendChild(document.createTextNode(text)); return; }
+    bits.forEach((bit, i) => {
+      if (!bit) return;
+      if (i % 2 === 1) {
+        const b = document.createElement('strong');
+        b.textContent = bit;
+        host.appendChild(b);
+      } else {
+        host.appendChild(document.createTextNode(bit));
+      }
+    });
+  }
+
+  // Oldest at the top, newest at the bottom; the newest is the live one. The
+  // column scrolls, so nothing is dropped just because the panel is short.
+  function syncTicker(focus) {
+    const calls = ((focus && focus.recent) || []).slice().reverse();   // oldest first
+    // Everything a row draws from, or a filled-in output never reaches the DOM
+    // and the closure keeps serving the empty one it was built with.
+    const key = (focus ? focus.id + ':' + focus.state + ':' : '') + calls.map(c =>
+      [c.tool, c.label || '', c.say || '', c.detail || '',
+       (c.output || '').length, c.failed ? 1 : 0,
+       c.delta ? c.delta.added + '/' + c.delta.removed : ''].join('|')
+    ).join('>');
+    if (key === tickKey) return;     // nothing moved
+    if (openCall) openRow(null);     // the list moved under the open line
+    tickKey = key;
+
+    // Stick to the newest unless you have deliberately scrolled back. Opening on
+    // the oldest call meant scrolling down every time just to see what is
+    // happening now.
+    const stick = tickFollow || tickOwner !== (focus && focus.id);
+    tickOwner = focus && focus.id;
+
+    callsEl.textContent = '';
+    if (!calls.length) {
+      const e = document.createElement('div');
+      e.className = 'ap-calls-empty';
+      e.textContent = focus ? 'starting up...' : 'nothing running';
+      callsEl.appendChild(e);
+      return;
+    }
+
+    const newest = calls.length - 1;
+    calls.forEach((c, i) => {
+      const node = tickRow(c);
+      // The closing message is a group with no tool row inside it, so this has
+      // to tolerate finding nothing — it used to throw here and abandon the rest
+      // of the column half-built.
+      const row = node.classList.contains('tick-group')
+        ? node.querySelector('.tick-row') : node;
+      const done = i !== newest || focus.state !== 'running';
+      if (row) {
+        row.classList.toggle('done-row', done);
+        row.classList.toggle('live', !done);
+      }
+      node.classList.toggle('done-row', done);
+      // Only the arriving entry animates in; the rest are already history.
+      if (i !== newest) node.style.animation = 'none';
+      callsEl.appendChild(node);
+    });
+    if (stick) { callsEl.scrollTop = callsEl.scrollHeight; tickFollow = true; }
+  }
+
+  // ── permission requests ─────────────────────────────────────────────────────
+  // A session is blocked on the other end of this, so the card opens the notch
+  // itself rather than waiting to be noticed, and every answer is sent back even
+  // if that means answering 'ask' and letting the terminal take over.
+  const permEl   = document.getElementById('ap-perm');
+  const permWhere = document.getElementById('ap-perm-where');
+  const permTool = document.getElementById('ap-perm-tool');
+  const permWhat = document.getElementById('ap-perm-what');
+  const permWho  = document.getElementById('ap-perm-who');
+  const permSub  = document.getElementById('ap-perm-sub');
+  const PERM_H = 178;              // header, who, tool, one-line command, actions
+  const permQueue = [];
+  let permCurrent = null;
+  // A card that appears or swaps under the pointer (a new prompt opening the
+  // panel, or the one being read vanishing) must not take a click aimed at what
+  // was there before.
+  const PERM_GUARD_MS = 400;
+  let permGuardUntil = 0;
+
+  // What is actually being asked, per tool, in one readable line.
+  function permSummary(tool, input) {
+    if (!input || typeof input !== 'object') return '';
+    const base = p => String(p).split(/[\/]/).pop();
+    switch (tool) {
+      case 'Bash':
+      case 'PowerShell': return String(input.command || input.description || '');
+      case 'Read':
+      case 'Write':
+      case 'Edit':       return input.file_path ? base(input.file_path) : '';
+      case 'Grep':
+      case 'Glob':       return String(input.pattern || '');
+      case 'WebFetch':   return String(input.url || '');
+      case 'WebSearch':  return String(input.query || '');
+      default: {
+        for (const v of Object.values(input)) {
+          if (typeof v === 'string' && v) return v;
+        }
+        return '';
+      }
+    }
+  }
+
+  // Which session is blocked, and what it was in the middle of. The request only
+  // carries a session id, so it is matched against the last snapshot to turn
+  // that into something a person recognises.
+  // The hook only tells us the session, not which agent inside it asked. With one
+  // agent running that is unambiguous; with several it says so rather than
+  // picking one; with none it was the session's own thread.
+  function permWhoText(req) {
+    const snap = lastSnap && lastSnap.sessions;
+    const sess = Array.isArray(snap) && snap.find(x => x.sessionId === req.sessionId);
+    const where = (sess && sess.name) || req.project || 'Claude Code';
+    if (!sess) return where;
+    // The session's own row is not one of its agents; counting it made a prompt
+    // from the main thread read as "session: <the chat title>".
+    const busy = sess.agents.filter(a => a.state === 'running' && !a.isSession);
+    if (busy.length === 1) return where + '  ·  ' + busy[0].type + ': ' + busy[0].description;
+    if (busy.length > 1)   return where + '  ·  one of ' + busy.length + ' agents';
+    return where + '  ·  main session';
+  }
+
+  function showPerm(req) {
+    permCurrent = req;
+    permWhere.textContent = 'WAITING ON YOU';
+    permWho.textContent = permWhoText(req);
+    permTool.textContent = req.tool || 'a tool';
+    permSub.textContent = permQueue.length ? '+' + permQueue.length + ' more waiting' : '';
+    permWhat.textContent = permSummary(req.tool, req.input) || '(no detail given)';
+    permGuardUntil = performance.now() + PERM_GUARD_MS;
+    contEl.classList.add('perm');
+    permGlowEl.classList.remove('idle');
+    // Its own height, not whatever the last agents render happened to leave in
+    // --agents-h: a long run could otherwise open this card at 420px.
+    setPanelHeight(PERM_H);
+    // Hover is the only other thing that arms the glass, and closeNotch drops the
+    // snapshot — so a prompt that opens the panel by itself would refract an
+    // empty image. Arm it here before opening.
+    armGlass();
+    if (!isOpen) openNotch();
+  }
+
+  function answerPerm(decision) {
+    if (!permCurrent) return;
+    const id = permCurrent.id;
+    permCurrent = null;
+    window.api?.answerPermission?.(id, decision);
+    nextPerm();
+  }
+
+  // The card on screen is settled: show the next one waiting, or put the panel back.
+  function nextPerm() {
+    const next = permQueue.shift();
+    if (next) { showPerm(next); return; }
+    contEl.classList.remove('perm');
+    // Open, the glow is already at opacity 0, so no transition will fire to pause it.
+    if (isOpen) permGlowEl.classList.add('idle');
+    // Nothing else pending: let the agents decide the size again.
+    render(lastSnap);
+  }
+
+  for (const btn of document.querySelectorAll('.pm-btn')) {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      if (performance.now() < permGuardUntil) return;
+      answerPerm(btn.dataset.decision);
+    });
+  }
+
+  // A prompt settled somewhere else (it timed out, or its session went away):
+  // its card goes, or it leaves the queue.
+  window.api?.onPermissionGone?.(id => {
+    if (permCurrent && permCurrent.id === id) { permCurrent = null; nextPerm(); return; }
+    const i = permQueue.findIndex(r => r.id === id);
+    if (i < 0) return;
+    permQueue.splice(i, 1);
+    permSub.textContent = permQueue.length ? '+' + permQueue.length + ' more waiting' : '';
+  });
+
+  // One at a time: two cards stacked would hide the one you are answering.
+  window.api?.onPermission?.(req => {
+    if (!permCurrent) { showPerm(req); return; }
+    // The card on screen has to say that another session is now blocked too;
+    // otherwise the count only ever appeared on the card after this one.
+    permQueue.push(req);
+    permSub.textContent = '+' + permQueue.length + ' more waiting';
+  });
+
+  window.api?.onAgents?.(render);
+  window.api?.agentsNow?.().then(render).catch(() => {});
+})();
+
 })();
 })();
 </script>
@@ -1560,6 +3393,12 @@ setInterval(poll, 2000);
      functions on window. Init is async and costs a beat, so it runs once at
      startup and the pane is simply reconfigured from then on. -->
 <script type="module">
+// The orb engine, straight off the package's framework-free entry point. The
+// React wrapper is never touched; this is the surface it documents for driving
+// your own canvas.
+import { resolvePreset, MODE_DRAWS } from '../node_modules/thinking-orbs/dist/engine.es.js';
+window.Orbs = { resolvePreset, MODE_DRAWS };
+
 import { LiquidGlass } from '../node_modules/@ybouane/liquidglass/dist/index.js';
 
 const root = document.getElementById('glass-root');
@@ -1586,7 +3425,29 @@ try {
   console.log('[notch] liquid glass unavailable:', e.message);
 }
 
+// The renderer caches a set of three framebuffers per `${w}x${h}` and never frees
+// them, and every spring frame is a new size, so each open/close left dozens of
+// sets behind in GPU memory. Only the size being drawn is kept.
+// ponytail: reaches into liquidglass 1.0.x privates (renderer._setActiveSize, fboCache,
+// _freeFBOSet, _running, _rafId, _renderLoop). Guarded, so a release that renames them
+// just loses the optimisation. Upstream fix: bounded FBO cache + a pause API.
+const gr = instance && instance.renderer;
+if (gr && gr.fboCache instanceof Map && typeof gr._setActiveSize === 'function'
+    && typeof gr._freeFBOSet === 'function') {
+  const setActive = gr._setActiveSize;
+  gr._setActiveSize = function (w, h) {
+    if (w > 0 && h > 0) {
+      const keep = w + 'x' + h;
+      for (const [k, set] of this.fboCache) {
+        if (k !== keep) { this._freeFBOSet(set); this.fboCache.delete(k); }
+      }
+    }
+    return setActive.call(this, w, h);
+  };
+}
+
 // Called as the panel springs: the corner radius follows the animated shape.
+let lastGlassKey = '';
 window.glassRefresh = (radius) => {
   if (!instance) return;
   const r = Math.round(radius);
@@ -1594,11 +3455,34 @@ window.glassRefresh = (radius) => {
     CONFIG.cornerRadius = r;
     pane.dataset.config = JSON.stringify(CONFIG);
   }
+  // markChanged IS required on a geometry change: the library resizes (and so
+  // clears) the pane canvas when its size changes but does not mark it dirty
+  // itself (_checkGlassSizeChanges), so without it the glass would go blank. A
+  // frame that changed nothing needs no redraw.
+  const key = pane.offsetWidth + 'x' + pane.offsetHeight + 'r' + r;
+  if (key === lastGlassKey) return;
+  lastGlassKey = key;
   instance.markChanged();
 };
 
 // Called when a fresh desktop snapshot has decoded into the <img>.
 window.glassChanged = (el) => instance?.markChanged(el);
+
+// The render loop runs only while the panel is open (see openNotch and springTo).
+window.glassPause = (paused) => {
+  if (!instance || typeof instance._renderLoop !== 'function') return;
+  if (paused) {
+    if (!instance._running) return;
+    instance._running = false;
+    cancelAnimationFrame(instance._rafId);
+  } else if (!instance._running) {
+    instance._running = true;
+    instance._rafId = requestAnimationFrame(() => instance._renderLoop());
+  }
+};
+// Init finishes while the app sits closed; without this the loop runs at 60 fps
+// until the first close.
+if (!document.getElementById('notch-content').classList.contains('open')) window.glassPause(true);
 </script>
 </body>
 </html>

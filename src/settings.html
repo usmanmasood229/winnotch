@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' data: blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>WinNotch</title>
 <style>
 @font-face { font-family:'SF Pro Display'; src:url('fonts/SFProDisplay-Regular.otf') format('opentype'); font-weight:400; font-display:block; }
@@ -449,7 +450,17 @@ async function refreshStats() {
   } catch(_) {}
 }
 refreshStats();
-setInterval(refreshStats, 2000);
+// Closing the window only hides it; polling a hidden page kept main sampling the CPU
+// every 2s for nothing.
+let statsTimer = null;
+function syncStats() {
+  clearInterval(statsTimer); statsTimer = null;
+  if (document.hidden) return;
+  refreshStats();
+  statsTimer = setInterval(refreshStats, 2000);
+}
+document.addEventListener('visibilitychange', syncStats);
+if (!document.hidden) statsTimer = setInterval(refreshStats, 2000);
 </script>
 </body>
 </html>

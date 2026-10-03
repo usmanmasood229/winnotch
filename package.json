@@ -6,7 +6,7 @@
   "scripts": {
     "prestart": "node scripts/build-helper.js",
     "start": "electron .",
-    "test": "node --test test/lid-motion.test.js test/media-title.test.js",
+    "test": "node --test test/lid-motion.test.js test/media-title.test.js test/say-format.test.js test/agent-scan.test.js test/main.test.js test/preload.test.js",
     "prebuild": "node scripts/build-helper.js",
     "build": "electron-builder --win --x64"
   },
@@ -46,6 +46,7 @@
   "dependencies": {
     "@ybouane/liquidglass": "^1.0.3",
     "electron-store": "^11.0.2",
+    "thinking-orbs": "^0.3.2",
     "yt-search": "^2.13.1"
   }
 }

@@ -13,6 +13,12 @@ contextBridge.exposeInMainWorld('api', {
   mediaSeek:   (seconds)     => ipcRenderer.invoke('media-seek', seconds),
   openCast:    ()            => ipcRenderer.invoke('open-cast'),
   desktopShot: ()            => ipcRenderer.invoke('desktop-shot'),
+  agentsNow:   ()            => ipcRenderer.invoke('agents-now'),
+  onAgents:    (fn)          => {
+    const handler = (_e, snap) => fn(snap);
+    ipcRenderer.on('agents', handler);
+    return () => ipcRenderer.removeListener('agents', handler);
+  },
   mediaPlay:   ()            => ipcRenderer.invoke('media-cmd', 'play'),
   mediaPause:  ()            => ipcRenderer.invoke('media-cmd', 'pause'),
   mediaNext:   ()            => ipcRenderer.invoke('media-cmd', 'next'),
@@ -24,6 +30,23 @@ contextBridge.exposeInMainWorld('api', {
     const handler = (_, isCharging) => cb(isCharging);
     ipcRenderer.on('charging-change', handler);
     return () => ipcRenderer.removeListener('charging-change', handler);
+  },
+
+  // Claude Code permission prompts. A prompt arrives as
+  // { id, tool, input, project, cwd, sessionId }; answering it with one of
+  // 'allow' | 'always' | 'deny' | 'ask' unblocks the session that's waiting.
+  // answerPermission resolves false if the prompt already timed out.
+  answerPermission: (id, decision) => ipcRenderer.invoke('permission-answer', { id, decision }),
+  onPermission: (cb)         => {
+    const handler = (_, req) => cb(req);
+    ipcRenderer.on('permission', handler);
+    return () => ipcRenderer.removeListener('permission', handler);
+  },
+  // The prompt with this id was settled elsewhere (timed out, cancelled), so its card goes.
+  onPermissionGone: (cb)     => {
+    const h = (_, id) => cb(id);
+    ipcRenderer.on('permission-gone', h);
+    return () => ipcRenderer.removeListener('permission-gone', h);
   },
 
   // Raw hinge angle in degrees, every sensor sample during a gesture (lid-blur.html)
