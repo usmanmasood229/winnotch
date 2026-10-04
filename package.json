@@ -1,13 +1,13 @@
 {
   "name": "winnotch",
-  "version": "7.1.0",
+  "version": "7.1.2",
   "description": "WinNotch — Dynamic Island for Windows",
   "main": "src/main.js",
   "scripts": {
     "prestart": "node scripts/build-helper.js",
     "start": "electron .",
     "test": "node --test test/lid-motion.test.js test/media-title.test.js test/say-format.test.js test/agent-scan.test.js test/hook-install.test.js test/hook-relay.test.js test/main.test.js test/preload.test.js",
-    "prebuild": "node scripts/build-helper.js",
+    "prebuild": "npm version patch --no-git-tag-version && node scripts/build-helper.js",
     "build": "electron-builder --win --x64"
   },
   "devDependencies": {

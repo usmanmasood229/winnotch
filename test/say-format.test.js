@@ -130,6 +130,60 @@ test('an unclosed bold marker is left as typed', () => {
   assert.ok(!out[0].tags.includes('strong'));
 });
 
+test('a fenced block keeps its lines and loses its fences', () => {
+  const out = render('Run this:\n\n```\nnpm run build\nnpm test\n```\n\nThen look.');
+  assert.deepStrictEqual(out.map(b => b.cls), ['say-p', 'say-pre', 'say-p']);
+  assert.strictEqual(out[1].text, 'npm run build\nnpm test', 'line breaks kept, no backticks');
+  assert.strictEqual(out[2].text, 'Then look.');
+});
+
+test('a language after the opening fence is not shown', () => {
+  const out = render('```js\nconst a = 1;\n```');
+  assert.deepStrictEqual(out.map(b => b.cls), ['say-pre']);
+  assert.strictEqual(out[0].text, 'const a = 1;');
+});
+
+test('nothing inside a fence is treated as markdown', () => {
+  const out = render('```\n- not a bullet\n**not bold** and `not code`\n\n## not a heading\n```');
+  assert.deepStrictEqual(out.map(b => b.cls), ['say-pre']);
+  assert.strictEqual(
+    out[0].text,
+    '- not a bullet\n**not bold** and `not code`\n\n## not a heading',
+    'blank lines and markers survive exactly as typed',
+  );
+  assert.deepStrictEqual(out[0].tags.filter(t => t !== '#text'), [], 'text only, no elements');
+});
+
+test('a one-line path in a fence comes out whole', () => {
+  const out = render('```\nC:\\Users\\x\\AppData\\Local\\Programs\\winnotch\\WinNotch.exe\n```');
+  assert.strictEqual(out[0].text, 'C:\\Users\\x\\AppData\\Local\\Programs\\winnotch\\WinNotch.exe');
+});
+
+test('an unclosed fence still renders as a block', () => {
+  const out = render('Here:\n\n```\nnpm run build');
+  assert.deepStrictEqual(out.map(b => b.cls), ['say-p', 'say-pre']);
+  assert.strictEqual(out[1].text, 'npm run build');
+});
+
+test('an empty fence draws an empty block, not a stray paragraph', () => {
+  const out = render('```\n```');
+  assert.deepStrictEqual(out.map(b => b.cls), ['say-pre']);
+  assert.strictEqual(out[0].text, '');
+});
+
+test('two fenced blocks in one message stay separate', () => {
+  const out = render('```\none\n```\n\n```\ntwo\n```');
+  assert.deepStrictEqual(out.map(b => b.cls), ['say-pre', 'say-pre']);
+  assert.strictEqual(out[0].text, 'one');
+  assert.strictEqual(out[1].text, 'two');
+});
+
+test('inline code still works after a fence closes', () => {
+  const out = render('```\nx\n```\n\nSet `font-weight` after.');
+  assert.deepStrictEqual(out.map(b => b.cls), ['say-pre', 'say-p']);
+  assert.ok(out[1].tags.includes('code'));
+});
+
 test('empty and whitespace messages produce nothing to draw', () => {
   assert.deepStrictEqual(render(''), []);
   assert.deepStrictEqual(render('\n\n   \n'), []);

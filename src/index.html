@@ -942,7 +942,9 @@ html,body {
   padding:1.5px 5px; border-radius:5px;
   background:rgba(255,255,255,.09);
   color:#d7dbe2;
-  white-space:nowrap;
+  /* A path or a command is often longer than the column. It used to be nowrap,
+     which pushed the row out instead of breaking, so it wraps anywhere now. */
+  overflow-wrap:anywhere;
 }
 .tick-group:not(.done-row) .tick-say code {
   background:rgba(255,255,255,.14); color:#fff;
@@ -974,6 +976,21 @@ html,body {
   width:3px; height:3px; border-radius:50%;
   background:currentColor; opacity:.55;
 }
+/* A fenced block keeps the line breaks it was written with, which is the whole
+   point of fencing it. It wraps rather than scrolls sideways: a path too long
+   for the column is still worth reading, and there is no horizontal scrollbar
+   in here to find. */
+.say-pre {
+  font:600 11px/1.55 var(--mono-font);
+  white-space:pre-wrap; overflow-wrap:anywhere;
+  padding:7px 9px; border-radius:8px;
+  background:rgba(255,255,255,.07);
+  border:1px solid rgba(255,255,255,.07);
+  color:#d7dbe2;
+}
+.say-p + .say-pre, .say-li + .say-pre, .say-h + .say-pre, .say-pre + .say-p,
+.say-pre + .say-li, .say-pre + .say-h, .say-pre + .say-pre { margin-top:7px; }
+.tick-group:not(.done-row) .say-pre { background:rgba(255,255,255,.11); color:#fff; }
 
 @keyframes tickIn {
   0%   { transform:translateY(12px) scale(.96); opacity:0; }
@@ -3135,13 +3152,35 @@ setInterval(poll, 2000);
   // comes off a log and is never handed to the DOM as markup.
   const MD_BULLET = /^\s*(?:[-*•]|\d+\.)\s+/;
   const MD_HEAD   = /^\s*#{1,6}\s+/;
+  // A fence, with or without a language after it. Anything up to the closing one
+  // is held exactly as typed.
+  const MD_FENCE  = /^\s*```/;
   // [label](url), with one level of brackets allowed inside the url.
   const MD_LINK   = /\[([^\]]+)\]\((?:[^()\s]|\([^()]*\))*\)/g;
 
   function writeSay(host, text) {
     const lines = String(text).replace(/\r/g, '').split('\n');
     let para = null;
+    let pre = null;            // the fenced block being filled, when inside one
     for (const line of lines) {
+      if (MD_FENCE.test(line)) {
+        // A fence either closes the block or opens one. The rest of an opening
+        // line is the language, which there is no room to show.
+        if (pre) { pre = null; continue; }
+        pre = document.createElement('div');
+        pre.className = 'say-pre';
+        host.appendChild(pre);
+        para = null;
+        continue;
+      }
+      if (pre) {
+        // Inside a fence nothing is markdown: blank lines, backticks and stars
+        // are all just what was typed. An unclosed fence runs to the end, which
+        // is still better than printing the backticks and losing the shape.
+        if (pre.childNodes.length) pre.appendChild(document.createTextNode('\n'));
+        pre.appendChild(document.createTextNode(line));
+        continue;
+      }
       if (!line.trim()) { para = null; continue; }     // a blank line ends the block
       const bullet = MD_BULLET.exec(line);
       const head   = bullet ? null : MD_HEAD.exec(line);
