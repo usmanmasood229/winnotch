@@ -35,6 +35,11 @@ function makeDoc() {
       return this.children.map(c => (c.tag === '#text' ? c.text : c.textContent)).join('');
     },
     appendChild(c) { this.children.push(c); return c; },
+    removeChild(c) {
+      const i = this.children.indexOf(c);
+      if (i !== -1) this.children.splice(i, 1);
+      return c;
+    },
     get childNodes() { return this.children; },
   });
   return {
@@ -50,10 +55,12 @@ const { writeSay } = new Function('document', source + '\n  return { writeSay };
 function render(md) {
   const host = makeDoc().createElement('div');
   writeSay(host, md);
+  // A bare text node means the formatter fell back to printing the raw message,
+  // which is a result worth reading in a failure rather than a crash in here.
   return host.children.map(b => ({
-    cls: b.className,
+    cls: b.tag === '#text' ? '(raw text)' : b.className,
     text: b.textContent,
-    tags: b.children.map(c => c.tag),
+    tags: b.tag === '#text' ? ['#text'] : b.children.map(c => c.tag),
   }));
 }
 
@@ -154,9 +161,67 @@ test('nothing inside a fence is treated as markdown', () => {
   assert.deepStrictEqual(out[0].tags.filter(t => t !== '#text'), [], 'text only, no elements');
 });
 
-test('a one-line path in a fence comes out whole', () => {
-  const out = render('```\nC:\\Users\\x\\AppData\\Local\\Programs\\winnotch\\WinNotch.exe\n```');
-  assert.strictEqual(out[0].text, 'C:\\Users\\x\\AppData\\Local\\Programs\\winnotch\\WinNotch.exe');
+test('a path with markdown characters in it survives a fence intact', () => {
+  const p = 'C:\\Users\\x\\src\\**\\*.js  # and a_b_c -- not a bullet';
+  const out = render('```\n' + p + '\n```');
+  assert.strictEqual(out[0].text, p);
+  assert.deepStrictEqual(out[0].tags.filter(t => t !== '#text'), [], 'no markup made of it');
+});
+
+test('a paragraph after a fence does not jump above it', () => {
+  // No blank line anywhere: the fence itself has to end the paragraph before it
+  // and start a fresh one after, or the trailing sentence joins the opening one.
+  const out = render('Run:\n```\nx\n```\nThen look.');
+  assert.deepStrictEqual(out.map(b => b.cls), ['say-p', 'say-pre', 'say-p']);
+  assert.strictEqual(out[0].text, 'Run:');
+  assert.strictEqual(out[2].text, 'Then look.');
+});
+
+test('a fence indented under a bullet is still a fence', () => {
+  const out = render('- step one\n  ```\n  npm test\n  ```\n- step two');
+  assert.deepStrictEqual(out.map(b => b.cls), ['say-li', 'say-pre', 'say-li']);
+  assert.strictEqual(out[1].text, '  npm test', 'the indent is content, kept as typed');
+  assert.strictEqual(out[2].text, 'step two');
+});
+
+test('a blank line at the start or end of a fence is kept', () => {
+  assert.strictEqual(render('```\n\nx\n```')[0].text, '\nx');
+  assert.strictEqual(render('```\nx\n\n```')[0].text, 'x\n');
+});
+
+// The fence rule has to tell an opening line from a one-line code span, or a
+// message that mentions a command inline loses it and everything after it.
+test('a one-line triple-backtick span is code, not the start of a block', () => {
+  const out = render('```npm run build``` builds it.\n\n- and this is still a bullet');
+  assert.deepStrictEqual(out.map(b => b.cls), ['say-p', 'say-li']);
+  assert.strictEqual(out[0].text, 'npm run build builds it.');
+  assert.ok(out[0].tags.includes('code'), 'rendered as inline code');
+  assert.strictEqual(out[1].text, 'and this is still a bullet');
+});
+
+test('text after a closing fence is kept, not dropped', () => {
+  const out = render('```\nnpm test\n``` then check the output');
+  assert.deepStrictEqual(out.map(b => b.cls), ['say-pre']);
+  assert.strictEqual(out[0].text, 'npm test\n``` then check the output',
+    'not a bare fence, so it stays inside the block');
+});
+
+test('a longer fence can quote a shorter one', () => {
+  const out = render('````md\n```js\nx = 1\n```\n````');
+  assert.deepStrictEqual(out.map(b => b.cls), ['say-pre']);
+  assert.strictEqual(out[0].text, '```js\nx = 1\n```');
+});
+
+test('a shorter fence does not close a longer block', () => {
+  const out = render('````\n```\n````');
+  assert.strictEqual(out.length, 1);
+  assert.strictEqual(out[0].text, '```');
+});
+
+test('an opening fence left dangling by truncation draws nothing', () => {
+  assert.deepStrictEqual(render('```js'), [], 'no empty grey box');
+  const out = render('Cut here.\n\n```');
+  assert.deepStrictEqual(out.map(b => b.cls), ['say-p'], 'the text before it survives');
 });
 
 test('an unclosed fence still renders as a block', () => {
@@ -198,6 +263,15 @@ test('carriage returns do not leak into the text', () => {
 test('a long run of lines stays one paragraph per blank-line group', () => {
   const out = render(Array.from({ length: 40 }, (_, i) => 'line ' + i).join('\n'));
   assert.strictEqual(out.length, 1);
+});
+
+// The stub cannot see CSS, so the one property the whole feature rests on is
+// checked against the stylesheet instead: without pre-wrap a fenced block renders
+// as one run-on line in Chromium and every test above still passes.
+test('the fenced block keeps its line breaks in CSS too', () => {
+  const rule = /\.say-pre\s*\{[^}]*\}/.exec(page);
+  assert.ok(rule, 'no .say-pre rule in the stylesheet');
+  assert.match(rule[0], /white-space\s*:\s*pre-wrap/, 'line breaks would collapse without this');
 });
 
 test('the real shape of a closing message comes out as blocks, not a wall', () => {

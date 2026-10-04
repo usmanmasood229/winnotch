@@ -943,8 +943,12 @@ html,body {
   background:rgba(255,255,255,.09);
   color:#d7dbe2;
   /* A path or a command is often longer than the column. It used to be nowrap,
-     which pushed the row out instead of breaking, so it wraps anywhere now. */
+     which pushed the row out instead of breaking, so it wraps anywhere now.
+     Cloning the decoration gives each half its own padding and rounded ends;
+     sliced, a broken span ends square on one line and starts square on the next,
+     which reads as a rendering fault rather than one pill over two lines. */
   overflow-wrap:anywhere;
+  -webkit-box-decoration-break:clone; box-decoration-break:clone;
 }
 .tick-group:not(.done-row) .tick-say code {
   background:rgba(255,255,255,.14); color:#fff;
@@ -965,8 +969,9 @@ html,body {
    thing on the line -- at 600 everywhere there was nothing for bold to stand
    against, which is why it looked like it was being ignored. */
 .tick-group.tick-final .tick-say { font-weight:500; line-height:1.55; }
-.say-p + .say-p, .say-p + .say-li, .say-li + .say-p,
-.say-h, .say-p + .say-h, .say-li + .say-h { margin-top:7px; }
+/* A heading only needs its gap when something sits above it: as the first block
+   the bare rule used to open the message with 7px of nothing. */
+.say-p + .say-p, .say-p + .say-li, .say-li + .say-p, * + .say-h { margin-top:7px; }
 .say-li + .say-li { margin-top:3px; }
 .say-h { font-weight:700; color:#fff; }
 .say-li { padding-left:12px; position:relative; }
@@ -983,14 +988,20 @@ html,body {
 .say-pre {
   font:600 11px/1.55 var(--mono-font);
   white-space:pre-wrap; overflow-wrap:anywhere;
+  color:#d7dbe2;
+}
+/* The box is for the closing message only. The running narration above it is
+   clamped to three lines, and a clamp lands wherever it lands: on a padded,
+   bordered block that means a slice through the middle of one, with its bottom
+   edge missing. Unboxed, a clamped fence is just monospace on the line. */
+.tick-final .say-pre {
   padding:7px 9px; border-radius:8px;
   background:rgba(255,255,255,.07);
   border:1px solid rgba(255,255,255,.07);
-  color:#d7dbe2;
 }
-.say-p + .say-pre, .say-li + .say-pre, .say-h + .say-pre, .say-pre + .say-p,
-.say-pre + .say-li, .say-pre + .say-h, .say-pre + .say-pre { margin-top:7px; }
-.tick-group:not(.done-row) .say-pre { background:rgba(255,255,255,.11); color:#fff; }
+.say-p + .say-pre, .say-li + .say-pre, .say-h + .say-pre,
+.say-pre + .say-p, .say-pre + .say-li, .say-pre + .say-pre { margin-top:7px; }
+.tick-group:not(.done-row) .say-pre { color:#fff; }
 
 @keyframes tickIn {
   0%   { transform:translateY(12px) scale(.96); opacity:0; }
@@ -3152,9 +3163,15 @@ setInterval(poll, 2000);
   // comes off a log and is never handed to the DOM as markup.
   const MD_BULLET = /^\s*(?:[-*•]|\d+\.)\s+/;
   const MD_HEAD   = /^\s*#{1,6}\s+/;
-  // A fence, with or without a language after it. Anything up to the closing one
-  // is held exactly as typed.
-  const MD_FENCE  = /^\s*```/;
+  // A fence line: the run of backticks, then whatever follows it. The two are
+  // captured separately because both decide things. Opening needs the rest of the
+  // line to hold no backtick of its own, which is CommonMark's rule for the
+  // language tag and the thing that keeps a one-line `​``npm test``​` span from
+  // reading as the start of a block -- it used to, and the command vanished with
+  // the rest of the message turning to raw monospace behind it. Closing needs a
+  // run at least as long as the one that opened, so a ````md block can quote a
+  // ```js one, and needs nothing after it, or the trailing words are dropped.
+  const MD_FENCE  = /^\s*(`{3,})([^`]*)$/;
   // [label](url), with one level of brackets allowed inside the url.
   const MD_LINK   = /\[([^\]]+)\]\((?:[^()\s]|\([^()]*\))*\)/g;
 
@@ -3162,23 +3179,25 @@ setInterval(poll, 2000);
     const lines = String(text).replace(/\r/g, '').split('\n');
     let para = null;
     let pre = null;            // the fenced block being filled, when inside one
+    let fenceLen = 0;          // how long the run that opened it was
     for (const line of lines) {
-      if (MD_FENCE.test(line)) {
-        // A fence either closes the block or opens one. The rest of an opening
-        // line is the language, which there is no room to show.
-        if (pre) { pre = null; continue; }
-        pre = document.createElement('div');
-        pre.className = 'say-pre';
-        host.appendChild(pre);
-        para = null;
-        continue;
-      }
+      const fence = MD_FENCE.exec(line);
       if (pre) {
         // Inside a fence nothing is markdown: blank lines, backticks and stars
-        // are all just what was typed. An unclosed fence runs to the end, which
-        // is still better than printing the backticks and losing the shape.
+        // are all just what was typed. Only a bare run as long as the opening one
+        // ends it; anything else is content. An unclosed fence runs to the end,
+        // which is still better than printing the backticks and losing the shape.
+        if (fence && fence[1].length >= fenceLen && !fence[2].trim()) { pre = null; continue; }
         if (pre.childNodes.length) pre.appendChild(document.createTextNode('\n'));
         pre.appendChild(document.createTextNode(line));
+        continue;
+      }
+      if (fence) {
+        pre = document.createElement('div');
+        pre.className = 'say-pre';
+        fenceLen = fence[1].length;
+        host.appendChild(pre);
+        para = null;
         continue;
       }
       if (!line.trim()) { para = null; continue; }     // a blank line ends the block
@@ -3195,9 +3214,15 @@ setInterval(poll, 2000);
       writeInline(para, line.slice((bullet || head || [''])[0].length));
       if (bullet || head) para = null;
     }
+    // A fence still open here never closed, and an empty one would draw a bare
+    // grey box: a message cut mid-way by SAY_MAX can end on its opening line.
+    if (pre && !pre.childNodes.length) host.removeChild(pre);
     // Nothing recognisable in it: show it as it was written rather than nothing.
-    // A message that is only whitespace has nothing to show either way.
-    if (!host.childNodes.length && String(text).trim()) host.textContent = String(text);
+    // A message that is only whitespace has nothing to show either way, and one
+    // that was nothing but that dangling fence was understood and deliberately
+    // dropped, so it must not come back here as raw text (fenceLen says a fence
+    // was opened at some point).
+    if (!host.childNodes.length && !fenceLen && String(text).trim()) host.textContent = String(text);
   }
 
   // `code`, **bold** and links, within one line.
