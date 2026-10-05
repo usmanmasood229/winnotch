@@ -209,11 +209,15 @@ function readTail(file, size) {
 // account of what it has been doing: a name alone says "Bash", the description
 // says which Bash.
 const RECENT_MAX = 7;
-// A closing message is read in full, so this has to hold a real one. Only
-// running and stalled agents carry their calls at all, and only the last few,
-// so the worst case is a handful of these per snapshot, not one per call ever
-// made. The running narration above it is still clamped to three lines by CSS.
-const SAY_MAX = 2000;
+// A closing message is read in full, so this has to hold a real one -- at 2000 a
+// long one stopped mid-word ("• Sen") and looked like the agent had simply
+// stopped there. Only running and stalled agents carry their calls at all, and
+// only the last few, so the worst case is a handful of these per snapshot, not
+// one per call ever made. The running narration above it is still clamped to
+// three lines by CSS, so the length only costs anything on the final one.
+// ponytail: a flat cap on every entry. If the snapshots get heavy, cap the
+// narration tightly and keep the long budget for the last entry alone.
+const SAY_MAX = 12000;
 
 // Tools carry their own best label in different fields.
 function callLabel(name, input) {

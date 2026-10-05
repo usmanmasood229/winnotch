@@ -332,29 +332,36 @@ html,body {
    the player for the list while any are working. Colour is per agent type, so
    the same kind of worker always reads the same at a glance. */
 /* ── Finished ──
-   A wash of green climbing from the bottom edge and fading out. It sits above
-   the panel's own fill but below its contents, and never takes a click. */
+   A thin line of light along the bottom edge with a low glow above it, in the
+   system green (#30d158). The old version was a 62% wash over the bottom half
+   for 2.6 s: a muddy green haze closed, and open it sat over the controls and
+   tinted them. z-index 1 keeps it above the panel's fill but under its contents.
+   Never takes a click. */
 #done-flash {
-  position:absolute; inset:0; z-index:5;
+  position:absolute; inset:0; z-index:1;
   pointer-events:none; opacity:0;
-  overflow:hidden;          /* the wash must not spill past the rounded corners */
+  overflow:hidden;          /* the light must not spill past the rounded corners */
 }
-/* A pool of light welling up from the bottom edge. It fades in and out in place
-   rather than sliding, which reads calmer. */
 #done-flash:after {
   content:''; position:absolute; inset:0;
-  background:radial-gradient(125% 95% at 50% 114%,
-    rgba(52,211,153,.62) 0%,
-    rgba(52,211,153,.26) 38%,
-    rgba(52,211,153,.07) 62%,
-    rgba(52,211,153,0) 80%);
+  background:
+    /* the rim: a soft band along the centre of the edge. A 7px, 95% line read
+       as too sharp, so it is wider and dimmer and fades out gradually. */
+    radial-gradient(52% 16px at 50% 100%, rgba(48,209,88,.55), rgba(48,209,88,.18) 55%, rgba(48,209,88,0)),
+    /* the glow it casts upward, kept low */
+    radial-gradient(64% 42% at 50% 100%, rgba(48,209,88,.2), rgba(48,209,88,0));
 }
-#done-flash.go { animation:donefade 2600ms ease-in-out 1; }
+/* Eases in, holds, and fades out slowly: an acknowledgement, not an event to
+   watch. 1.5 s with a quick rise felt abrupt. */
+#done-flash.go { animation:donefade 2400ms ease-in-out 1; }
 @keyframes donefade {
   0%   { opacity:0; }
-  30%  { opacity:1; }
-  68%  { opacity:1; }
+  25%  { opacity:1; }
+  45%  { opacity:1; }
   100% { opacity:0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #done-flash.go { animation-duration:1200ms; }
 }
 
 /* ── Waiting on you, from the outside ──
@@ -467,74 +474,31 @@ html,body {
    doing. Only the wave gives up its slot, because that is where the agents go. */
 #notch-content.agents #pill-wave { display:none; }
 #agent-mini-av { width:17px; height:17px; flex:0 0 auto; }
-/* Closed and working, the mark walks across the pill rather than round its rim,
-   where it spent most of the loop sitting in a corner. A straight line through
-   the middle of the collapsed pill (200x29), stopping short of the crew of orbs
-   parked at the right-hand end. It fades out at the far side and back in at the
-   near one, so the loop reads as another lap and not as a snap back.
+/* Closed and working, the mark plays in the pill: wanders, stops to look round,
+   jumps, spins. The behaviour is the "romp" loop in the script, which picks a
+   random action each time; CSS here only places the box it moves in.
 
-   Four animations across two elements, on properties that don't fight: the
-   walk carries the box, the hop and the lean move the mark inside it. Their
-   periods share no common factor worth the name -- 7.3s, 0.67s, 2.9s -- so the
-   combination takes hours to come round again. That is where the
-   not-quite-repeating, alive feel comes from; CSS has no randomness to call.
-
-   This used to travel on offset-path/offset-distance, which reads better than
-   two nested elements but is not a property the compositor can animate: it
-   repainted the pill every frame, on a window that is transparent and always on
-   top, so every repaint composited the whole thing. Measured, with everything
-   else unchanged, it cost 36% of a core in the GPU process and 24% in the
-   renderer; without it, 20% and 14%. translate, scale, rotate and opacity all
-   animate off the main thread, so the same motion now costs close to nothing.
-   The path was a straight line anyway, which is the only reason this swap is
-   free: a curve would have to go back to offset-path and pay for it. */
+   Motion is translate/scale/rotate/opacity only (Web Animations), all of which
+   run on the compositor. An earlier offset-path walk repainted this transparent
+   always-on-top window every frame and cost 36% of a core in the GPU process. */
 #notch-content.agents:not(.open) #agent-mini-av {
   /* Spans the pill's height so the mark inside it sits on the centre line. The
      travel is in pill coordinates (200x29, box inset 11px at the right): the
-     crew is a 26px orb plus its count, owning roughly the last 42px, so the walk
-     stops at 118 to keep the 17px mark clear of it. */
+     crew is a 26px orb plus its count, owning roughly the last 42px, so the
+     mark stays between 8 and 118 to keep clear of it (ROMP_X_MIN/MAX). */
   position:absolute; left:0; top:0; height:29px;
   display:flex; align-items:center; justify-content:center;
-  animation:markWalk 7.3s linear infinite;
 }
 #notch-content.agents:not(.open) #agent-mini-av > * {
   transform-origin:50% 85%;   /* the feet, so a squash sits down rather than shrinking */
-  animation:
-    markHop  0.67s cubic-bezier(.3,0,.45,1)  infinite,
-    markLean 2.9s  ease-in-out               infinite;
-}
-/* The crossing itself. Uneven gaps between the keyframes under a linear timing
-   mean it hurries, then dawdles, then stops dead for a beat as though something
-   caught its eye -- all without a second animation to schedule. */
-@keyframes markWalk {
-  0%   { translate:8px 0;   opacity:0; }
-  7%   { opacity:1; }
-  24%  { translate:42px 0; }
-  31%  { translate:44px 0; }
-  52%  { translate:59px 0; }
-  57%  { translate:59px 0; }
-  93%  { opacity:1; }
-  100% { translate:118px 0; opacity:0; }
-}
-/* The hop. Squashed wide on the landing, stretched tall off the top: the weight
-   is what sells it as a thing walking rather than a sprite sliding sideways. */
-@keyframes markHop {
-  0%   { translate:0 0;      scale:1.16 .84; }
-  16%  { translate:0 -3.6px; scale:.93 1.09; }
-  44%  { translate:0 -4.8px; scale:1 1; }
-  72%  { translate:0 -1.1px; scale:1.03 .97; }
-  100% { translate:0 0;      scale:1.16 .84; }
-}
-/* A slow sway on its own clock, so no two hops land at the same angle. */
-@keyframes markLean {
-  0%, 100% { rotate:-8deg; }
-  50%      { rotate:8deg; }
 }
 /* Nothing moving, nothing walking -- the mark inside it included. */
 #notch-content.agents:not(.open) .agent-av.bad,
 #notch-content.agents:not(.open) .agent-av.bad > * { animation:none; }
 #agent-mini-grid { display:flex; align-items:center; gap:4px; }
 #agent-mini-grid canvas { display:block; }
+/* The closed orb's slot: one canvas that reshapes from kind to kind. */
+#mini-orb { width:26px; height:26px; flex:0 0 auto; }
 .ad-more { font:700 9.5px/1 var(--font); color:#8e939c; }
 #agent-mini-grid i {
   width:8px; height:8px; border-radius:50%;
@@ -547,8 +511,18 @@ html,body {
 
 /* ── Open: two cards ── */
 #agents-panel ::-webkit-scrollbar, #ap-side::-webkit-scrollbar { width:0; height:0; }
+/* Laid out at the size it settles at, not the size it is passing through. This
+   was inset:0, so it tracked #notch-content frame by frame while the open spring
+   ran: every line of text re-wrapped and re-clipped the whole way in, a diff line
+   cut mid-word at 642px, again past 700 on the overshoot, before landing at 660.
+   #notch-content clips, so the shape reveals a panel that is already the right
+   size and never moves. Centred on a margin rather than a transform, because the
+   open state animates transform and the two would fight. */
 #agents-panel {
-  position:absolute; inset:0; z-index:4;
+  position:absolute; top:0; left:50%;
+  margin-left:calc(var(--agents-w) / -2);
+  width:var(--agents-w); height:var(--agents-h);
+  z-index:4;
   display:none; flex-direction:column; gap:8px;
   padding:9px 12px 12px;
   pointer-events:none; opacity:0;
@@ -575,8 +549,55 @@ html,body {
   font:500 10.5px/1 var(--font); color:#5f646d;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
 }
+/* With sessions in more than one project, #ap-where becomes a row of project
+   tabs: All, then one per project. Same quiet chip as the view tabs.
+   ponytail: no scrolling; past ~5 long names the last chips are clipped. */
+/* No align-self: the head aligns on baseline, so the chips' text sits on the
+   same line as "N agents working". */
+/* Padding gives the 20px chips room inside #ap-where's overflow clip; the
+   matching negative margin keeps the head at its 12px-text height, so the card
+   below doesn't move when tabs appear. */
+#ap-where.projects { display:flex; gap:3px; min-width:0; padding:4px 0; margin:-4px 0 -7px; }
+.ap-proj {
+  flex:0 1 auto; min-width:0; max-width:110px; height:20px; padding:0 8px;
+  border:none; border-radius:7px; background:transparent; color:#6b7079;
+  font:600 10.5px/20px var(--font);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  cursor:pointer; -webkit-app-region:no-drag;
+  transition:background 130ms, color 130ms;
+}
+.ap-proj:hover { color:#c9cdd4; background:rgba(255,255,255,.06); }
+.ap-proj.on { color:#f5f6f8; background:#1d1f23; }
+/* In All, each session says which project it is in, on a line under its title
+   so the title keeps the column's full width. Height: H_PROJ. */
+.ap-step .lblcol { display:flex; flex-direction:column; min-width:0; }
+.ap-step .proj {
+  margin-top:2px;
+  font:600 10.5px/14px var(--font); color:#5f646d;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
 /* One card, split: who on the left, what they did on the right. */
-#ap-body { flex:1 1 auto; display:flex; min-height:0; }
+/* The card grows with the shape rather than being revealed by it. Two earlier
+   goes at this were wrong in opposite directions: letting it fill the animating
+   container reflowed every line on every frame, and pinning it at full size and
+   clipping it stopped the reflow but hid its rounded corners until the notch was
+   fully open. Sizing the box from the animation while holding its contents at
+   their final size gets both -- the corners are there the whole way, nothing
+   inside moves. */
+#ap-body {
+  flex:0 0 auto; display:flex; min-height:0;
+  /* Sized by the shape as it animates (applyShape sets these), so the box and its
+     rounded corners are on screen the whole way open. overflow:hidden is what
+     makes that work: the panes inside keep their full size and are clipped by the
+     card, instead of being squeezed and reflowing. The fallbacks are for any
+     state that opens before applyShape has run. */
+  width:var(--card-w, 100%); height:var(--card-h, 100%);
+  overflow:hidden;
+  /* Centred in the panel, which is itself centred on the notch. Without this it
+     sits against the panel's left edge, which is fixed at the open width, so a
+     half-grown notch would show the card off to one side of itself. */
+  align-self:center;
+}
 #ap-side {
   flex:0 0 186px; min-width:0; overflow:hidden auto;
   scrollbar-width:none;          /* swipe to scroll; the bar only ate space */
@@ -586,7 +607,11 @@ html,body {
 /* Its own surface inside the card, so the activity reads as a separate pane
    rather than text floating on the same slab as the agent list. */
 #ap-main {
-  flex:1 1 auto; min-width:0; min-height:0;
+  /* Held at the width it will have when the notch is open, so a card that is
+     still narrow clips it rather than squeezing it: the moment this is allowed to
+     shrink, every line in it re-wraps on every frame of the open. 24 is the
+     panel's padding, 186 the agent list beside it, 11 this pane's own margin. */
+  flex:1 1 auto; min-width:calc(var(--agents-w) - 221px); min-height:0;
   margin:11px 11px 11px 0; padding:12px 6px 12px 14px;
   display:flex; flex-direction:column; overflow:hidden;
   /* The same lens, one layer in: clear through the middle so the panel reads as
@@ -1004,7 +1029,12 @@ html,body {
    with. Its body drops to 500 so that the bold inside it is actually the heavier
    thing on the line -- at 600 everywhere there was nothing for bold to stand
    against, which is why it looked like it was being ignored. */
-.tick-group.tick-final .tick-say { font-weight:500; line-height:1.55; }
+/* 500 in pure white still read as all bold on black, so a long message was hard
+   to get through: the body is 400 in a softer white, and bold is set apart by
+   both weight and the full white. */
+.tick-group.tick-final .tick-say { font-weight:400; line-height:1.55; color:#d4d8de; }
+.tick-group.tick-final .tick-say strong { font-weight:600; color:#fff; }
+.tick-group.tick-final .tick-say code { font-weight:500; }
 /* A heading only needs its gap when something sits above it: as the first block
    the bare rule used to open the message with 7px of nothing. */
 .say-p + .say-p, .say-p + .say-li, .say-li + .say-p, * + .say-h { margin-top:7px; }
@@ -1109,9 +1139,13 @@ html,body {
 /* Stacked, like the reference: art and title across the top, the progress bar
    spanning the full width with its times on either end, then the transport
    row centred underneath. */
+/* Same reason as #agents-panel above: fixed to where it lands, revealed by the
+   shape rather than resized by it. */
 #panel {
   position:absolute;
-  inset:0;
+  top:0; left:50%;
+  margin-left:calc(var(--panel-w) / -2);
+  width:var(--panel-w); height:var(--panel-h);
   display:flex;
   flex-direction:column;
   justify-content:center;
@@ -1126,6 +1160,9 @@ html,body {
   background:transparent;
   border-radius:30px;
 }
+/* The player is shorter when it shares the panel with the agents header; this is
+   the same choice EH() makes when it picks the height to spring to. */
+#notch-content.music #panel { height:var(--music-h); }
 #notch-content.open #panel {
   opacity:1;
   transform:none;
@@ -1714,6 +1751,13 @@ const floorLayer = document.getElementById('glass-floor-l');
 const edgePath   = document.getElementById('notch-edge');
 const glassEdge  = document.getElementById('glass-edge');
 
+// How much smaller the card is than the notch around it: the panel's own padding
+// on each side, and on the vertical the header strip above it as well. Measured
+// against the laid-out panel rather than added up from the rules, so one number
+// moves if the padding does.
+const CARD_INSET_X = 24;
+const CARD_INSET_Y = 52;
+
 function applyShape(nw,nh,rb,ear) {
   if (!(ear > 0)) ear = EAR();
   const tw=nw+ear*2, d=makePath(nw,nh,ear,rb);
@@ -1733,6 +1777,16 @@ function applyShape(nw,nh,rb,ear) {
     `M ${lx},${nh - r} Q ${lx},${nh} ${lx + r},${nh} L ${rx - r},${nh} Q ${rx},${nh} ${rx},${nh - r}`);
   hitEl.style.cssText=`width:${tw}px;height:${nh}px`;
   contEl.style.cssText=`width:${nw}px;height:${nh}px;overflow:hidden`;
+
+  // The card is a real box of the shape's current size, inset by the panel's own
+  // padding, rather than a full-size slab the growing shape wipes across. That is
+  // what puts its rounded corners on screen for the whole of the open instead of
+  // only once the notch has reached full width. Its contents are held at their
+  // final size and clipped by it, so the box grows while nothing inside reflows
+  // -- the two have to be separated, or it is the text that gets squashed.
+  const root = document.documentElement.style;
+  root.setProperty('--card-w', Math.max(0, nw - CARD_INSET_X) + 'px');
+  root.setProperty('--card-h', Math.max(0, nh - CARD_INSET_Y) + 'px');
   // The glass rim follows the animated corner radius.
   if (glassEdge) glassEdge.style.borderRadius = `${Math.min(rb, nh * 0.48).toFixed(1)}px`;
   drawGlass(nw, nh, rb);
@@ -1804,7 +1858,7 @@ function drawGlass(nw, nh, rb) {
   // over the notch's rounded ones.
   if (doneFlashEl) doneFlashEl.style.borderRadius = rad;
   if (permGlowEl)  permGlowEl.style.borderRadius = rad;
-  window.glassRefresh?.(radius);
+  window.glassRefresh?.(radius, nw, nh);
 }
 
 async function armGlass() {
@@ -1841,19 +1895,31 @@ function animateTo(toW,toH,toRb,dur,fn) {
   })(t0);
 }
 
-// Opening and closing run on springs rather than a fixed curve. A spring keeps
-// its speed when the target changes, so hovering away mid-open turns around
-// smoothly instead of stopping dead and starting a new animation. Opening is
-// slightly underdamped, which gives the small settle at the end that makes the
-// motion feel physical; closing is critically damped, so it never wobbles.
-const SPRING_OPEN  = { hz: 2.5, zeta: 0.66 };
-const SPRING_CLOSE = { hz: 3.2, zeta: 1 };
+// Opening and closing run on springs rather than a fixed curve, the way the
+// Dynamic Island does. A spring keeps its speed when the target changes, so
+// hovering away mid-open turns around smoothly instead of stopping dead.
+//
+// Springs are written the way SwiftUI's Spring(duration:bounce:) takes them:
+// duration is the perceived settle time, bounce 0 never overshoots and higher
+// overshoots more (0.15 is .snappy, 0.3 is .bouncy). With unit mass Apple's
+// conversion is stiffness = (2π/duration)², damping ratio = 1 - bounce, which is
+// hz = 1/duration and zeta = 1 - bounce here. Valid for bounce in [0, 1).
+const spring = (duration, bounce) => ({ hz: 1 / duration, zeta: 1 - bounce });
+// Expands out of the pill with a small settle; collapses without one.
+const SPRING_OPEN    = spring(0.4, 0.2);
+const SPRING_CLOSE   = spring(0.32, 0);
+// System "reduce motion" (Windows: Settings > Accessibility > Animation effects):
+// no overshoot anywhere, and quicker, as Apple does for its own transitions.
+const SPRING_REDUCED = spring(0.25, 0);
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
+
 let velW=0, velH=0, velR=0, velE=0;
 
 // The ear (the curve into the top of the screen) rides the same spring, so it
 // opens out with the panel and comes back to the bezel curve on close.
 function springTo(toW, toH, toRb, toEar, s) {
   if(animId) cancelAnimationFrame(animId);
+  if (reduceMotion.matches) s = SPRING_REDUCED;
   const w = 2*Math.PI*s.hz, z = s.zeta;
   let last = performance.now();
   (function tick(now){
@@ -1899,6 +1965,7 @@ function openNotch() {
   hitEl.classList.add('active','open');
   contEl.classList.add('open');
   document.getElementById('pill-art-glow').classList.add('panel-open');
+  // Straight out of the pill, no wind-up: the island never makes you wait on it.
   springTo(EW(),EH(),ER(),EE(),SPRING_OPEN);
   setInteractive(true);
   // Armed here, not in hoverOpen: however the panel came to be open, the window
@@ -2527,6 +2594,38 @@ setInterval(poll, 2000);
   // What the cluster, the step rows and the diff were last built from, and how
   // many step labels wrap to a second line.
   let lastMiniKey = '', lastStepsKey = '', lastDiffKey = '', stepsH = 0;
+  // The project tab in view; null is All. lastProjKey rebuilds the tabs only
+  // when the set of projects or the pick changes.
+  let projPick = null, lastProjKey = '';
+
+  // The closed orb taking turns between the kinds of work under way.
+  // ponytail: the 2.6 s timer keeps ticking while the panel is open (it skips
+  // the swap); stopped outright only when the set of kinds changes or empties.
+  const MINI_SWITCH_MS = 2600;
+  let miniHolder = null, miniTimer = null, miniCycle = [], miniShown = null;
+  // One canvas for the life of the slot: a new kind reshapes it (morphOrb), so
+  // the orb turns into the next one instead of being swapped for it.
+  function showMiniOrb(state) {
+    if (!miniHolder) return;
+    const cur = miniHolder.firstElementChild;
+    if (cur && morphOrb(cur, state)) { miniShown = state; return; }
+    const next = makeOrb(state, ORB_DRAW);
+    if (!next) return;
+    miniShown = state;
+    miniHolder.textContent = '';
+    miniHolder.appendChild(next);
+  }
+  function cycleMini(states) {
+    miniCycle = states;
+    // Carry on with the one already showing if it is still under way.
+    showMiniOrb(states.includes(miniShown) ? miniShown : states[0]);
+    if (states.length < 2) return;
+    miniTimer = setInterval(() => {
+      if (contEl.classList.contains('open') || document.hidden) return;
+      showMiniOrb(miniCycle[(miniCycle.indexOf(miniShown) + 1) % miniCycle.length]);
+    }, MINI_SWITCH_MS);
+  }
+  function stopMiniCycle() { clearInterval(miniTimer); miniTimer = null; }
   // Which agents were running last time, so a finish can be spotted.
   let wasRunning = new Set();
   const flashEl = document.getElementById('done-flash');
@@ -2652,6 +2751,122 @@ setInterval(poll, 2000);
   avEl.appendChild(claudeMark());
   setMarkState('idle');
 
+  // ── The mark at play ──
+  // Closed and working, the mark does one random thing after another instead of
+  // pacing a fixed lap: wanders to a spot (facing where it goes), looks round,
+  // jumps, spins, wiggles, stretches, or just sits. It is livelier while the
+  // agents are busy and lazier while they think.
+  // The box carries where it is and which way it faces; the mark inside it does
+  // the hops and tricks. Each step sets the end state as the inline style, then
+  // animates from where it was, so nothing piles up as fill:forwards layers.
+  // Only translate/scale/rotate/opacity, so it all runs on the compositor.
+  const ROMP_X_MIN = 8, ROMP_X_MAX = 118;      // see #agent-mini-av in the CSS
+  (() => {
+    const box = miniAv;
+    const mark = () => miniAv.firstElementChild;
+    const live = new Set();                     // animations to cancel on stop
+    let on = false, gen = 0, x = 60, face = 1, last = '', napTimer = null, napDone = null;
+    const rnd = (a, b) => a + Math.random() * (b - a);
+
+    function play(el, frames, opts) {
+      const a = el.animate(frames, opts);
+      live.add(a);
+      return a.finished.catch(() => {}).finally(() => live.delete(a));
+    }
+    function nap(ms) {
+      return new Promise(res => { napDone = res; napTimer = setTimeout(res, ms); });
+    }
+    function place() { box.style.translate = x + 'px 0'; box.style.scale = face + ' 1'; }
+
+    // One hop: sits down on take-off, stretches at the top, lands soft.
+    const HOP = h => [
+      { translate:'0 0',            scale:'1 1' },
+      { translate:'0 0',            scale:'1.12 .88', offset:.12 },
+      { translate:`0 ${-h}px`,      scale:'.93 1.09', offset:.42 },
+      { translate:`0 ${-h * .2}px`, scale:'1.03 .97', offset:.78 },
+      { translate:'0 0',            scale:'1 1' },
+    ];
+
+    function turn(to) {
+      if (to === face) return Promise.resolve();
+      const from = face; face = to; place();
+      return play(box, [{ scale: from + ' 1' }, { scale: to + ' 1' }], { duration: 160, easing: 'ease-in-out' });
+    }
+    async function travel(speed, hopMs, hopH) {
+      let to;
+      do { to = rnd(ROMP_X_MIN, ROMP_X_MAX); } while (Math.abs(to - x) < 22);
+      await turn(to > x ? 1 : -1);
+      const from = x, dur = Math.abs(to - from) / speed * 1000;
+      x = to; place();
+      await Promise.all([
+        play(box, [{ translate: from + 'px 0' }, { translate: to + 'px 0' }], { duration: dur, easing: 'ease-in-out' }),
+        play(mark(), HOP(hopH), { duration: hopMs, iterations: Math.max(1, Math.round(dur / hopMs)) }),
+      ]);
+    }
+    const ACTS = {
+      walk:    () => travel(rnd(26, 40), 600, 4.5),
+      dash:    () => travel(rnd(80, 110), 300, 2.5),
+      idle:    () => nap(rnd(700, 2400)),
+      look:    async () => {
+        await play(mark(), [{ rotate:'0deg' }, { rotate:'-12deg', offset:.2 }, { rotate:'-12deg', offset:.45 },
+                            { rotate:'11deg', offset:.65 }, { rotate:'11deg', offset:.85 }, { rotate:'0deg' }],
+                   { duration: 1800, easing: 'ease-in-out' });
+        if (Math.random() < .5) await turn(-face);
+      },
+      jump:    () => play(mark(), HOP(9), { duration: 650, easing: 'ease-out' }),
+      spin:    () => play(mark(), HOP(9).map((k, i) => Object.assign({ rotate: [0, 0, 180, 300, 360][i] * face + 'deg' }, k)),
+                          { duration: 800, easing: 'ease-in-out' }),
+      wiggle:  () => play(mark(), [-14, 14, -10, 10, -5, 0].reduce((f, d) => f.concat({ rotate: d + 'deg' }), [{ rotate:'0deg' }]),
+                          { duration: 700, easing: 'ease-in-out' }),
+      stretch: () => play(mark(), [{ scale:'1 1' }, { scale:'.88 1.18', offset:.3 }, { scale:'.88 1.18', offset:.6 },
+                                   { scale:'1.14 .86', offset:.8 }, { scale:'1 1' }], { duration: 1300, easing: 'ease-in-out' }),
+    };
+    // Busy: on the move. Thinking or idle: mostly sits and looks about.
+    const MOODS = {
+      running: { walk: 5, dash: 1, idle: 2, look: 2, jump: 2, spin: 1, wiggle: 1, stretch: 1 },
+      calm:    { walk: 2, dash: 0, idle: 5, look: 3, jump: 1, spin: 0, wiggle: 1, stretch: 2 },
+    };
+    function choose() {
+      const w = MOODS[miniAv.dataset.state === 'running' ? 'running' : 'calm'];
+      // A trick twice in a row looks scripted; walking or sitting twice does not.
+      const names = Object.keys(w).filter(n => w[n] && (n !== last || n === 'walk' || n === 'idle'));
+      let r = Math.random() * names.reduce((s, n) => s + w[n], 0);
+      for (const n of names) { r -= w[n]; if (r < 0) return (last = n); }
+      return (last = 'idle');
+    }
+
+    async function loop(g) {
+      while (on && g === gen) await ACTS[choose()]();
+    }
+    function start() {
+      if (on || !mark()) return;
+      on = true;
+      x = rnd(ROMP_X_MIN, ROMP_X_MAX); face = Math.random() < .5 ? 1 : -1; place();
+      play(box, [{ opacity: 0 }, { opacity: 1 }], { duration: 300 });
+      loop(++gen);
+    }
+    function stop() {
+      if (!on) return;
+      on = false; gen++;
+      clearTimeout(napTimer); if (napDone) napDone();
+      for (const a of [...live]) a.cancel();
+      box.style.translate = box.style.scale = '';
+    }
+    // Plays only while it can be seen and nothing is stuck: a stalled agent
+    // keeps the mark still on purpose (.bad), and reduce motion means stay put.
+    function sync() {
+      const want = contEl.classList.contains('agents') && !contEl.classList.contains('open')
+                && !miniAv.classList.contains('bad') && !reduceMotion.matches && !document.hidden;
+      want ? start() : stop();
+    }
+    const watch = new MutationObserver(sync);
+    watch.observe(contEl,  { attributes: true, attributeFilter: ['class'] });
+    watch.observe(miniAv,  { attributes: true, attributeFilter: ['class'] });
+    reduceMotion.addEventListener('change', sync);
+    document.addEventListener('visibilitychange', sync);
+    sync();
+  })();
+
   // response is a moment, not a condition, so it holds briefly then releases.
   let respUntil = 0;
   function setMarkState(state) {
@@ -2671,13 +2886,32 @@ setInterval(poll, 2000);
   // ring while it works, a hollow circle before it has started.
   // Which orb suits the work. A search looks nothing like a rewrite, and the
   // mark may as well say which is happening.
+  // searching: a scan sweeps a globe   listening: a wave rolls through rings
+  // composing: a rippling sash         working: dots on tilted orbits
+  // connecting: a constellation wiring itself   weaving: strands plaiting
+  // solving: bands scrambling, clicking back
+  // All seven of these are in use. Not used, by choice: breathing (a plain ring,
+  // read as a loading spinner) and shaping (the circle/triangle/square morph).
   const ORB_FOR_TOOL = {
     Grep: 'searching', Glob: 'searching', WebSearch: 'searching', WebFetch: 'searching',
     Read: 'listening', NotebookEdit: 'composing',
     Edit: 'composing', Write: 'composing', MultiEdit: 'composing',
-    Agent: 'connecting', Task: 'connecting', Skill: 'connecting',
+    Agent: 'connecting', Task: 'connecting', Skill: 'weaving',
+    TodoWrite: 'weaving', ExitPlanMode: 'weaving',
     Bash: 'working', PowerShell: 'working',
   };
+  // Between calls the model is thinking, which is its own shape, not the last
+  // tool's: the newest call already has its result, or nothing has run yet.
+  const ORB_THINKING = 'solving';
+  function orbStateFor(a) {
+    const r = a && a.recent && a.recent[0];
+    // A call is in flight until its result is attached (agent-scan sets output,
+    // even to '', when the tool_result arrives). You/Done entries carry no id.
+    if (r && r.id && r.output === undefined) {
+      return ORB_FOR_TOOL[r.tool] || (String(r.tool).startsWith('mcp__') ? 'connecting' : 'working');
+    }
+    return ORB_THINKING;
+  }
 
   const ORB_PX = 20;               // the smallest preset the library ships
   // ...but the canvas can be bigger than the preset it was tuned for, and at
@@ -2696,12 +2930,18 @@ setInterval(poll, 2000);
   const ORB_MS = 50;               // 20fps
   let orbLast = -Infinity;
 
+  // A switch of kind (morphOrb) reshapes the orb rather than swapping it: each
+  // dot glides from its place in the old shape to one in the new. Full frame
+  // rate while that runs (morphUntil), back to ORB_MS after.
+  const ORB_MORPH_MS = 900;
+  let morphUntil = 0;
+
   function paintOrbs(now) {
     orbRaf = null;
     if (!orbs.size) return;
     // Still scheduled, just not drawn: a rAF that paints nothing costs nothing to
     // composite, and keeping it means no visibility change has to restart it.
-    if (now - orbLast < ORB_MS) { orbRaf = requestAnimationFrame(paintOrbs); return; }
+    if (now >= morphUntil && now - orbLast < ORB_MS) { orbRaf = requestAnimationFrame(paintOrbs); return; }
     orbLast = now;
     const t = now / 1000;
     for (const o of orbs) {
@@ -2714,18 +2954,70 @@ setInterval(poll, 2000);
       ctx.clearRect(0, 0, o.canvas.width, o.canvas.height);
       ctx.save();
       ctx.scale(o.dpr, o.dpr);
-      MODE_DRAWS_SAFE(o.mode)(ctx, ORB_PX, t * o.speed, true, o.opts);
+      const k = o.from ? (now - o.mStart) / ORB_MORPH_MS : 1;
+      if (k < 1) {
+        const O = window.Orbs;
+        const e = k < .5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;   // ease in-out
+        O.paintFrame(ctx, blendFrames(
+          O.MODE_FRAMES[o.from.mode](ORB_PX, t * o.from.speed, o.from.opts),
+          O.MODE_FRAMES[o.mode](ORB_PX, t * o.speed, o.opts), e), true);
+      } else {
+        o.from = null;
+        MODE_DRAWS_SAFE(o.mode)(ctx, ORB_PX, t * o.speed, true, o.opts);
+      }
       ctx.restore();
     }
     if (orbs.size) orbRaf = requestAnimationFrame(paintOrbs);
   }
+
+  // Part way from one shape's dots to another's, f in [0, 1]. Dots are paired in
+  // order of their angle round the centre, so each one travels a short way
+  // rather than across the orb. With unequal counts some dots pair twice: they
+  // split apart (or merge) on the way. Lines (the constellation) cross-fade.
+  function blendFrames(A, B, f) {
+    const c = ORB_PX / 2;
+    const byAngle = (p, q) => Math.atan2(p.y - c, p.x - c) - Math.atan2(q.y - c, q.x - c);
+    const a = A.dots.slice().sort(byAngle), b = B.dots.slice().sort(byAngle);
+    const n = Math.max(a.length, b.length);
+    const mix = (x, y) => x + (y - x) * f;
+    const dots = [];
+    for (let i = 0; i < n; i++) {
+      let p = a[Math.floor(i * a.length / n)], q = b[Math.floor(i * b.length / n)];
+      if (!p) p = Object.assign({}, q, { a: 0 });
+      if (!q) q = Object.assign({}, p, { a: 0 });
+      dots.push({ x: mix(p.x, q.x), y: mix(p.y, q.y), z: mix(p.z, q.z), r: mix(p.r, q.r),
+                  white: mix(p.white, q.white), a: mix(p.a ?? 1, q.a ?? 1) });
+    }
+    dots.sort((p, q) => p.z - q.z);                    // far to near, as the painter expects
+    const fade = (ls, w) => ls.map(l => Object.assign({}, l, { a: (l.a ?? 1) * w }));
+    return { dots, lines: fade(A.lines, 1 - f).concat(fade(B.lines, f)) };
+  }
+
+  // Reshape an orb made by makeOrb into another state, from wherever it is.
+  function morphOrb(canvas, state) {
+    const o = canvas && canvas._orb;
+    if (!o || !window.Orbs) return false;
+    let preset;
+    try { preset = window.Orbs.resolvePreset(state, ORB_PX); } catch { return false; }
+    // Back on the painter's list: it drops a canvas that was off the page at a
+    // paint, which this one is after the slot sat empty with nothing live.
+    orbs.add(o);
+    if (!orbRaf) orbRaf = requestAnimationFrame(paintOrbs);
+    if (preset.mode === o.mode) return true;
+    o.from = { mode: o.mode, speed: o.speed, opts: o.opts };
+    o.mode = preset.mode; o.speed = preset.speed; o.opts = preset.opts;
+    o.mStart = performance.now();
+    morphUntil = o.mStart + ORB_MORPH_MS;
+    if (!orbRaf) orbRaf = requestAnimationFrame(paintOrbs);
+    return true;
+  }
   const MODE_DRAWS_SAFE = mode =>
     (window.Orbs && window.Orbs.MODE_DRAWS[mode]) || (() => {});
 
-  function makeOrb(tool, px) {
+  // `state` is an orb state from orbStateFor: the kind of work, or thinking.
+  function makeOrb(state, px) {
     if (!window.Orbs) return null;
     const size = px || ORB_ROW;
-    const state = ORB_FOR_TOOL[tool] || 'working';
     let preset;
     try { preset = window.Orbs.resolvePreset(state, ORB_PX); } catch { return null; }
     const dpr = devicePixelRatio || 1;
@@ -2737,18 +3029,20 @@ setInterval(poll, 2000);
     canvas.style.height = size + 'px';
     // The preset is tuned for 20; scaling the whole context keeps its
     // proportions while filling a larger box.
-    orbs.add({ canvas, dpr: dpr * (size / ORB_PX), mode: preset.mode,
-               speed: preset.speed, opts: preset.opts });
+    const rec = { canvas, dpr: dpr * (size / ORB_PX), mode: preset.mode,
+                  speed: preset.speed, opts: preset.opts, from: null, mStart: 0 };
+    canvas._orb = rec;                 // so morphOrb can reshape it later
+    orbs.add(rec);
     // One loop drives every orb on screen, rather than one timer each.
     if (!orbRaf) orbRaf = requestAnimationFrame(paintOrbs);
     return canvas;
   }
 
-  function stepMark(state, tool) {
+  function stepMark(state, orbState) {
     const wrap = document.createElement('i');
     wrap.className = 'mark' + (state === 'running' ? ' spin' : '');
     if (state === 'running') {
-      const orb = makeOrb(tool);
+      const orb = makeOrb(orbState);
       if (orb) { wrap.className = 'mark orb-mark'; wrap.appendChild(orb); return wrap; }
     }
     const svg = document.createElementNS(SVG, 'svg');
@@ -2843,7 +3137,7 @@ setInterval(poll, 2000);
       // no longer there.
       tickKey = ''; tickOwner = null; tickFollow = true;
       if (openCall) openRow(null);
-      lastMiniKey = lastStepsKey = lastDiffKey = ''; stepsH = 0;
+      lastMiniKey = lastStepsKey = lastDiffKey = ''; stepsH = 0; stopMiniCycle();
       setMarkState(markStateFor(live)); contEl.classList.remove('music'); miniGrid.textContent = ''; stepsEl.textContent = ''; callsEl.textContent = ''; return; }
 
     // The job is the top-level work; the workers are what it handed out. With no
@@ -2857,17 +3151,34 @@ setInterval(poll, 2000);
     // under way, and the count sits beside it.
     // Rebuilt only when what it draws has changed, so a snapshot that moved
     // nothing here leaves the running orb alone.
+    // Every kind of work under way right now, one orb each: the tools in flight
+    // first, thinking last. With several, the closed orb takes turns between them
+    // (cycleMini), so a search, a write and a command all get seen.
     const lead = crew.find(a => a.state === 'running') || crew[0];
-    const miniKey = (lead && window.Orbs ? 'orb:' + (lead.activity || '')
+    const kinds = [...new Set(crew.filter(a => a.state === 'running').map(orbStateFor))]
+      .sort((x, y) => (x === ORB_THINKING) - (y === ORB_THINKING));
+    const miniStates = kinds.length ? kinds : lead ? [orbStateFor(lead)] : [];
+    // Keyed on the set of kinds, not the tools, so two reads in a row keep the
+    // same canvas; rebuilt only when what it cycles through changes.
+    const miniKey = (lead && window.Orbs ? 'orbs:' + miniStates.join(',')
       : 'dots:' + crew.slice(0, MAX_MINI).map(a => a.state + ':' + a.type).join(','))
       + '|' + crew.length + '|' + devicePixelRatio;
     if (miniKey !== lastMiniKey) {
       lastMiniKey = miniKey;
       miniGrid.textContent = '';
-      const orb = lead ? makeOrb(lead.activity, ORB_DRAW) : null;
-      if (orb) {
-        miniGrid.appendChild(orb);
+      stopMiniCycle();
+      if (lead && window.Orbs) {
+        // The same slot and canvas carry over, so a change in what is running
+        // morphs the orb too rather than swapping it. Re-attached in the same
+        // task it was cleared in, so the painter never sees it disconnected.
+        if (!miniHolder) {
+          miniHolder = document.createElement('span');
+          miniHolder.id = 'mini-orb';
+        }
+        miniGrid.appendChild(miniHolder);
+        cycleMini(miniStates);
       } else {
+        miniHolder = null;
         for (const a of crew.slice(0, MAX_MINI)) {
           const d = document.createElement('i');
           d.className = a.state;
@@ -2889,12 +3200,36 @@ setInterval(poll, 2000);
     setMarkState(markStateFor(live));
 
     // ── open: the strip above the card ──
-    const projects = [...new Set(live.map(a => a.project).filter(Boolean))];
-    countEl.textContent = live.length === 1 ? '1 agent working'
-                                            : live.length + ' agents working';
-    whereEl.textContent = projects.length === 1 ? projects[0]
-                        : projects.length > 1   ? projects.length + ' projects'
-                        : '';
+    // One project: its name. Several: a tab each, so jumping between projects you
+    // can tell which session is where, or narrow the list to one of them.
+    const projects = [...new Set(live.map(a => a.project).filter(Boolean))].sort();
+    if (projPick && !projects.includes(projPick)) projPick = null;
+    const multi = projects.length > 1;
+    const projKey = multi ? 'tabs:' + projects.join('\u0001') + '|' + projPick
+                          : 'one:' + (projects[0] || '');
+    if (projKey !== lastProjKey) {
+      lastProjKey = projKey;
+      whereEl.textContent = '';
+      whereEl.classList.toggle('projects', multi);
+      if (multi) {
+        for (const p of [null, ...projects]) {
+          const b = document.createElement('button');
+          b.className = 'ap-proj' + (p === projPick ? ' on' : '');
+          b.textContent = p || 'All';
+          b.addEventListener('click', e => {
+            e.stopPropagation();
+            projPick = p; picked = null;
+            render(lastSnap);
+          });
+          whereEl.appendChild(b);
+        }
+      } else {
+        whereEl.textContent = projects[0] || '';
+      }
+    }
+    const shown = projPick ? live.filter(a => a.project === projPick) : live;
+    countEl.textContent = shown.length === 1 ? '1 agent working'
+                                             : shown.length + ' agents working';
 
     // ── open, left of the card: the agents, one line each ──
     // The one in focus feeds the right-hand column. Pressing another moves it;
@@ -2905,7 +3240,7 @@ setInterval(poll, 2000);
     // beneath it. A flat list gave no clue which chat a given agent belonged to.
     const ordered = [];
     for (const sess of sessions) {
-      const mine = live.filter(a => sess.agents.some(x => x.id === a.id));
+      const mine = shown.filter(a => sess.agents.some(x => x.id === a.id));
       if (!mine.length) continue;
       // Its own row heads the group whether or not it passed the live filter, so
       // every agent sits under the chat that actually started it.
@@ -2915,15 +3250,19 @@ setInterval(poll, 2000);
       for (const a of mine) if (!a.isSession) ordered.push(a);
     }
     const steps = ordered.slice(0, MAX_STEPS);
-    const focus = live.find(a => a.id === picked)
+    const focus = shown.find(a => a.id === picked)
                || steps.find(a => a.state === 'running')
-               || steps[0] || live[0];
-    if (picked && !live.some(a => a.id === picked)) picked = null;
+               || steps[0] || shown[0];
+    if (picked && !shown.some(a => a.id === picked)) picked = null;
     const nowAt = Math.max(0, steps.indexOf(focus));
+    // Session rows carry their project only in All with several projects; a
+    // single project is already named in the header.
+    const tagProject = multi && !projPick;
     // Same rule as the cluster: the rows (and their orbs) are rebuilt only when
     // something they show has moved.
-    const stepsKey = steps.map(a => [a.id, a.state, a.activity || '', a.description].join('\u0001')).join('\u0002')
-      + '|' + nowAt + '|' + (live.length - steps.length) + '|' + !!window.Orbs + '|' + devicePixelRatio;
+    const stepsKey = steps.map(a => [a.id, a.state, orbStateFor(a), a.description].join('\u0001')).join('\u0002')
+      + '|' + nowAt + '|' + (shown.length - steps.length) + '|' + tagProject
+      + '|' + !!window.Orbs + '|' + devicePixelRatio;
     if (stepsKey !== lastStepsKey) {
       lastStepsKey = stepsKey;
       stepsEl.textContent = '';
@@ -2931,25 +3270,35 @@ setInterval(poll, 2000);
         const row = document.createElement('div');
         row.className = 'ap-step' + (i === nowAt ? ' now' : '')
                     + (a.isSession ? ' is-session' : ' under-session');
-        const tick = stepMark(a.state, a.activity);
+        const tick = stepMark(a.state, orbStateFor(a));
         const lbl = document.createElement('span');
         lbl.className = 'lbl';
         lbl.textContent = a.description;
         // No title attribute: the OS tooltip it summons is a grey box that draws
         // outside the notch entirely.
-        row.append(tick, lbl);
+        if (tagProject && a.isSession && a.project) {
+          const col = document.createElement('div');
+          col.className = 'lblcol';
+          const proj = document.createElement('span');
+          proj.className = 'proj';
+          proj.textContent = a.project;
+          col.append(lbl, proj);
+          row.append(tick, col);
+        } else {
+          row.append(tick, lbl);
+        }
         clickable(row, a.id);
         stepsEl.appendChild(row);
       });
       // Ten agents must not silently become three.
-      const hidden = live.length - steps.length;
+      const hidden = shown.length - steps.length;
       if (hidden > 0) {
         const more = document.createElement('div');
         more.className = 'ap-more-row';
         more.textContent = '+' + hidden + ' more';
         stepsEl.appendChild(more);
       }
-      stepsH = stepsHeight(steps, nowAt, hidden > 0);
+      stepsH = stepsHeight(steps, nowAt, hidden > 0, tagProject);
     }
 
     // -- open, right of the card: the ticker --
@@ -3008,13 +3357,16 @@ setInterval(poll, 2000);
     return measureCtx.measureText(text).width > LBL_W - (orb ? 19 : 16);
   }
   // Height of the list just built in stepsEl, one entry per agent in steps.
-  function stepsHeight(steps, nowAt, more) {
+  // The project line under a session title in All: 14px line + 2px margin.
+  const H_PROJ = 16;
+  function stepsHeight(steps, nowAt, more, tagProject) {
     let h = 0;
     steps.forEach((a, i) => {
       const mark = stepsEl.children[i] && stepsEl.children[i].firstChild;
       const orb = !!(mark && mark.classList.contains('orb-mark'));
       const lines = labelWraps(a.description, i === nowAt, orb) ? 2 : 1;
-      h += Math.max(orb ? H_ROW_ORB : H_ROW_MARK, lines * H_LINE) + (i ? H_STEP_GAP : 0);
+      const proj = tagProject && a.isSession && a.project ? H_PROJ : 0;
+      h += Math.max(orb ? H_ROW_ORB : H_ROW_MARK, lines * H_LINE + proj) + (i ? H_STEP_GAP : 0);
     });
     if (more) h += H_STEP_GAP + H_MORE;
     return h;
@@ -3331,44 +3683,43 @@ setInterval(poll, 2000);
     if (!host.childNodes.length && !fenceLen && String(text).trim()) host.textContent = String(text);
   }
 
-  // `code`, **bold** and links, within one line.
+  // `code`, **bold** and links, within one line. One left-to-right pass over code
+  // spans and ** markers, so bold can wrap code (**`/pre-pr` was skipped**):
+  // splitting on backticks first cut that bold in two and printed both **.
+  // A ** inside a code span is literal, since the span is matched as a whole.
+  // An unpaired backtick matches nothing and stays as typed. Everything is built
+  // as nodes; this text comes from a log and is never handed to the DOM as markup.
+  // A code span closes on a run of exactly as many backticks as opened it
+  // (CommonMark), so ```npm run build``` is one span, not `` + code + ``.
+  const MD_INLINE = /(?<!`)(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)|\*\*/g;
   function writeInline(host, text) {
-    const parts = text.split('`');
-    // An odd marker means a code span was never closed; leave the line alone
-    // rather than swallowing the rest of it as code.
-    if (parts.length % 2 === 0) { writeBold(host, text.replace(MD_LINK, '$1')); return; }
-    parts.forEach((part, i) => {
-      if (!part) return;
-      // Odd indexes sat between a pair of backticks, and are literal by
-      // definition -- markdown does not format inside code.
-      if (i % 2 === 1) {
+    const toks = [];             // strings, '**' markers, and { code } spans
+    let at = 0;
+    for (const m of text.matchAll(MD_INLINE)) {
+      if (m.index > at) toks.push(text.slice(at, m.index));
+      toks.push(m[1] ? { code: m[2] } : '**');
+      at = m.index + m[0].length;
+    }
+    if (at < text.length) toks.push(text.slice(at));
+    // An odd number of ** means one was never closed: leave them all as typed.
+    const boldOk = toks.filter(t => t === '**').length % 2 === 0;
+    let strong = null;
+    for (const tok of toks) {
+      if (tok === '**' && boldOk) {
+        if (strong) strong = null;
+        else strong = host.appendChild(document.createElement('strong'));
+        continue;
+      }
+      const into = strong || host;
+      if (typeof tok === 'object') {
         const code = document.createElement('code');
-        code.textContent = part;
-        host.appendChild(code);
+        code.textContent = tok.code;
+        into.appendChild(code);
       } else {
         // Only a link's label is worth the width; nothing here is clickable.
-        writeBold(host, part.replace(MD_LINK, '$1'));
+        into.appendChild(document.createTextNode(tok.replace(MD_LINK, '$1')));
       }
-    });
-  }
-
-  // **emphasis** the way the narration is written, so the point of a line reads
-  // first. Everything is built as nodes; this text comes from a log and is never
-  // handed to the DOM as markup.
-  function writeBold(host, text) {
-    const bits = text.split('**');
-    // An odd marker means it was never closed: leave the text as it was typed.
-    if (bits.length % 2 === 0) { host.appendChild(document.createTextNode(text)); return; }
-    bits.forEach((bit, i) => {
-      if (!bit) return;
-      if (i % 2 === 1) {
-        const b = document.createElement('strong');
-        b.textContent = bit;
-        host.appendChild(b);
-      } else {
-        host.appendChild(document.createTextNode(bit));
-      }
-    });
+    }
   }
 
   // Oldest at the top, newest at the bottom; the newest is the live one. The
@@ -3566,8 +3917,8 @@ setInterval(poll, 2000);
 // The orb engine, straight off the package's framework-free entry point. The
 // React wrapper is never touched; this is the surface it documents for driving
 // your own canvas.
-import { resolvePreset, MODE_DRAWS } from '../node_modules/thinking-orbs/dist/engine.es.js';
-window.Orbs = { resolvePreset, MODE_DRAWS };
+import { resolvePreset, MODE_DRAWS, MODE_FRAMES, paintFrame } from '../node_modules/thinking-orbs/dist/engine.es.js';
+window.Orbs = { resolvePreset, MODE_DRAWS, MODE_FRAMES, paintFrame };
 
 import { LiquidGlass } from '../node_modules/@ybouane/liquidglass/dist/index.js';
 
@@ -3618,7 +3969,7 @@ if (gr && gr.fboCache instanceof Map && typeof gr._setActiveSize === 'function'
 
 // Called as the panel springs: the corner radius follows the animated shape.
 let lastGlassKey = '';
-window.glassRefresh = (radius) => {
+window.glassRefresh = (radius, w, h) => {
   if (!instance) return;
   const r = Math.round(radius);
   if (r !== CONFIG.cornerRadius) {
@@ -3629,7 +3980,13 @@ window.glassRefresh = (radius) => {
   // clears) the pane canvas when its size changes but does not mark it dirty
   // itself (_checkGlassSizeChanges), so without it the glass would go blank. A
   // frame that changed nothing needs no redraw.
-  const key = pane.offsetWidth + 'x' + pane.offsetHeight + 'r' + r;
+  // Keyed on the size the caller already knows, not on the pane's measured size.
+  // Reading offsetWidth here forced a synchronous layout of the page on every
+  // frame of the open, right after applyShape had written three style properties
+  // and this function five more: measured at 5ms a frame, which is most of a
+  // 16.7ms budget and took the open from 60fps to about 27. The key only has to
+  // change exactly when the geometry does, and these numbers do that.
+  const key = (w != null ? w + 'x' + h : pane.offsetWidth + 'x' + pane.offsetHeight) + 'r' + r;
   if (key === lastGlassKey) return;
   lastGlassKey = key;
   instance.markChanged();

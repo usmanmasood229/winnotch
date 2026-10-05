@@ -121,6 +121,33 @@ function silent(r) {
   assert.strictEqual(r.err, '', 'no stderr: ' + r.err);
 }
 
+// A card the notch cannot answer still holds the panel open for the whole wait,
+// so these never reach it at all: the terminal asks, the notch stays out of it.
+test('AskUserQuestion is left to the terminal, and never reaches the notch', async () => {
+  let sawRequest = false;
+  const s = await server(proves((sock, nonce) => {
+    sawRequest = true;
+    sock.end(signed('allow', nonce));
+  }));
+  const r = await runRelay({ ...PAYLOAD, tool_name: 'AskUserQuestion', tool_input: { questions: [] } });
+  silent(r);
+  assert.strictEqual(sawRequest, false, 'no request was sent to the notch');
+  assert.ok(r.ms < 2500, 'gives up at once rather than waiting: ' + r.ms);
+  await s.close();
+});
+
+test('an ordinary tool still goes to the notch', async () => {
+  let sawRequest = false;
+  const s = await server(proves((sock, nonce) => {
+    sawRequest = true;
+    sock.end(signed('allow', nonce));
+  }));
+  const r = await runRelay();
+  assert.strictEqual(sawRequest, true, 'the guard is not swallowing everything');
+  assert.strictEqual(r.code, 0);
+  await s.close();
+});
+
 test('no hook file: falls back at once', async () => {
   try { fs.unlinkSync(FILE); } catch {}
   const r = await runRelay();

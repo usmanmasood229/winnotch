@@ -150,6 +150,23 @@ test('an unclosed bold marker is left as typed', () => {
   assert.ok(!out[0].tags.includes('strong'));
 });
 
+// The shape that printed "** /pre-pr hasn't reviewed it**": bold wrapping a code
+// span was split at the backticks, leaving an unpaired ** in each half.
+test('bold that wraps a code span is bold, with the code inside it', () => {
+  const host = makeDoc().createElement('div');
+  writeSay(host, "- **`/pre-pr` hasn't reviewed it**, because you pushed directly.");
+  const li = host.children[0];
+  assert.strictEqual(li.textContent, "/pre-pr hasn't reviewed it, because you pushed directly.", 'no ** left');
+  assert.deepStrictEqual(li.children.map(c => c.tag), ['strong', '#text']);
+  assert.deepStrictEqual(li.children[0].children.map(c => c.tag), ['code', '#text']);
+});
+
+test('code in the middle of bold, and bold beside code, both render', () => {
+  const out = render('**Pushed:** both at `97de5df`. **Run `npm test` first.**');
+  assert.strictEqual(out[0].text, 'Pushed: both at 97de5df. Run npm test first.');
+  assert.deepStrictEqual(out[0].tags, ['strong', '#text', 'code', '#text', 'strong']);
+});
+
 test('a fenced block keeps its lines and loses its fences', () => {
   const out = render('Run this:\n\n```\nnpm run build\nnpm test\n```\n\nThen look.');
   assert.deepStrictEqual(out.map(b => b.cls), ['say-p', 'say-pre', 'say-p']);

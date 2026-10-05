@@ -35,6 +35,8 @@ const WAIT_MS = 110000;
 const HELLO_MS = 3000;
 // Replies are a line of JSON; anything bigger without a newline is not ours.
 const MAX_LINE = 64 * 1024;
+// Tools the notch has no business answering; see main() for why.
+const NOT_OURS = new Set(['AskUserQuestion']);
 
 function mac(secret, text) {
   return crypto.createHmac('sha256', secret).update(text).digest('hex');
@@ -112,6 +114,13 @@ async function main() {
   // judge a request they cannot see. Fall back to the terminal instead.
   if (typeof payload.tool_name !== 'string' || !payload.tool_name) return giveUp();
   if (!payload.tool_input || typeof payload.tool_input !== 'object') return giveUp();
+  // Some tools cannot be arbitrated with allow/deny, and putting them in the
+  // notch is worse than leaving them alone. AskUserQuestion is a question with
+  // its own answers, not a permission: the card had no command to show, so it
+  // read "(no detail given)" over three buttons that could not answer anything,
+  // and because a pending card holds the panel open it sat there for the full
+  // 110s wait while the question was being answered in the terminal.
+  if (NOT_OURS.has(payload.tool_name)) return giveUp();
   const cwd = typeof payload.cwd === 'string' && payload.cwd ? payload.cwd : process.cwd();
 
   const info = readHookInfo();
