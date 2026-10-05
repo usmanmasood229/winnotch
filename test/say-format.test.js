@@ -167,6 +167,24 @@ test('code in the middle of bold, and bold beside code, both render', () => {
   assert.deepStrictEqual(out[0].tags, ['strong', '#text', 'code', '#text', 'strong']);
 });
 
+test('a link with a bold label comes down to the bold label', () => {
+  const out = render('See [**the guide**](https://x.io/a) now');
+  assert.strictEqual(out[0].text, 'See the guide now');
+  assert.deepStrictEqual(out[0].tags, ['#text', 'strong', '#text']);
+});
+
+test('a table row of dashes or blanks is a row, not the header rule', () => {
+  const out = render('| a | b |\n|---|---|\n| - | - |\n| | |\n| 1 | 2 |');
+  assert.strictEqual(out[0].cls2, 'say-table headed');
+  assert.deepStrictEqual(out[0].rows, [['a', 'b'], ['-', '-'], ['', ''], ['1', '2']]);
+});
+
+test('a blank second row is not taken for the rule', () => {
+  const out = render('| a | b |\n| | |\n| c | d |');
+  assert.strictEqual(out[0].cls2, 'say-table', 'not headed');
+  assert.deepStrictEqual(out[0].rows, [['a', 'b'], ['', ''], ['c', 'd']]);
+});
+
 test('a fenced block keeps its lines and loses its fences', () => {
   const out = render('Run this:\n\n```\nnpm run build\nnpm test\n```\n\nThen look.');
   assert.deepStrictEqual(out.map(b => b.cls), ['say-p', 'say-pre', 'say-p']);

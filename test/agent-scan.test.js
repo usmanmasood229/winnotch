@@ -511,8 +511,8 @@ const injected  = text => ({ type: 'user', isMeta: true, message: { content: [{ 
 
 test('E49 what you typed shows up among the calls', t => {
   const s = session(t);
-  s.agent('x', [toolUse('Bash', 't1'), saidByYou('stop and install'), toolUse('Read', 't2')]);
-  const recent = s.get('x').recent.slice().reverse();   // oldest first
+  s.selfLog([toolUse('Bash', 't1'), saidByYou('stop and install'), toolUse('Read', 't2')]);
+  const recent = s.self().recent.slice().reverse();   // oldest first
   assert.deepStrictEqual(recent.map(c => c.tool), ['Bash', 'You', 'Read']);
   assert.strictEqual(recent[1].say, 'stop and install');
 });
@@ -521,36 +521,43 @@ test('E49 what you typed shows up among the calls', t => {
 // answering landed below your new message, as though said in answer to it.
 test('E49 the reply you answered sits above your message, not below it', t => {
   const s = session(t);
-  s.agent('x', [toolUse('Bash', 't1'), stopped('end_turn'), saidByYou('lets write another blog'), toolUse('Read', 't2')]);
-  const recent = s.get('x').recent.slice().reverse();   // oldest first
+  s.selfLog([toolUse('Bash', 't1'), stopped('end_turn'), saidByYou('lets write another blog'), toolUse('Read', 't2')]);
+  const recent = s.self().recent.slice().reverse();   // oldest first
   assert.deepStrictEqual(recent.map(c => c.tool), ['Bash', 'Done', 'You', 'Read']);
   assert.strictEqual(recent[1].say, 'All done.');
 });
 
 test('E49 a reply answered before anything new has run is still shown once, above you', t => {
   const s = session(t);
-  s.agent('x', [stopped('end_turn'), saidByYou('again')]);
-  const recent = s.get('x').recent.slice().reverse();
+  s.selfLog([stopped('end_turn'), saidByYou('again')]);
+  const recent = s.self().recent.slice().reverse();
   assert.deepStrictEqual(recent.map(c => c.tool), ['Done', 'You']);
+});
+
+test('E49 a message typed mid-turn does not turn the narration into a closing reply', t => {
+  const s = session(t);
+  s.selfLog([partial, saidByYou('wait, use the other file'), toolUse('Read', 't2')]);
+  const recent = s.self().recent.slice().reverse();
+  assert.deepStrictEqual(recent.map(c => c.tool), ['You', 'Read'], 'no Done mid-turn');
 });
 
 test('E49 a message of yours is not mistaken for the agent narrating', t => {
   const s = session(t);
-  s.agent('x', [saidByYou('do the thing'), toolUse('Bash', 't1')]);
-  const recent = s.get('x').recent.slice().reverse();
+  s.selfLog([saidByYou('do the thing'), toolUse('Bash', 't1')]);
+  const recent = s.self().recent.slice().reverse();
   assert.deepStrictEqual(recent.map(c => c.tool), ['You', 'Bash']);
   assert.strictEqual(recent[1].say, 'next: t1', 'the call keeps the assistant text, not yours');
 });
 
 test('E49 what the harness injects under a user record is left out', t => {
   const s = session(t);
-  s.agent('x', [
+  s.selfLog([
     toolUse('Bash', 't1'),
     injected('[Image: source: C:\\tmp\\shot.png]'),
     injected('Base directory for this skill: C:\\skills\\pre-pr'),
     saidByYou('carry on'),
   ]);
-  const said = s.get('x').recent.filter(c => c.tool === 'You');
+  const said = s.self().recent.filter(c => c.tool === 'You');
   assert.strictEqual(said.length, 1, 'only the one that was typed');
   assert.strictEqual(said[0].say, 'carry on');
 });
@@ -559,23 +566,45 @@ test('E49 the newest thing you said survives a burst of calls', t => {
   const s = session(t);
   const calls = [];
   for (let i = 0; i < 12; i++) calls.push(toolUse('Bash', 'b' + i));
-  s.agent('x', [saidByYou('first thing'), saidByYou('do it this way instead'), ...calls]);
-  const recent = s.get('x').recent.slice().reverse();
+  s.selfLog([saidByYou('first thing'), saidByYou('do it this way instead'), ...calls]);
+  const recent = s.self().recent.slice().reverse();
   const said = recent.filter(c => c.tool === 'You');
   assert.strictEqual(said.length, 1, 'kept, though twelve calls came after it');
   assert.strictEqual(said[0].say, 'do it this way instead', 'the newest one, not the first');
   assert.strictEqual(recent[0].tool, 'You', 'in order: above the calls it set off');
 });
 
+// A subagent's user records are the task its parent handed it, not you.
+test('E49 a subagent\'s task from its parent is not shown as yours', t => {
+  const s = session(t);
+  s.agent('x', [saidByYou('Review the diff for races'), toolUse('Bash', 't1'), toolUse('Bash', 't2')]);
+  assert.deepStrictEqual(s.get('x').recent.filter(c => c.tool === 'You'), []);
+});
+
+// What you type can be logged as a plain string rather than an array of blocks.
+test('E49 a message logged as a plain string is still yours, after the reply it answers', t => {
+  const s = session(t);
+  s.selfLog([stopped('end_turn'), { type: 'user', message: { content: 'please also fix the footer' } }, toolUse('Read', 't2')]);
+  const recent = s.self().recent.slice().reverse();
+  assert.deepStrictEqual(recent.map(c => c.tool), ['Done', 'You', 'Read']);
+  assert.strictEqual(recent[1].say, 'please also fix the footer');
+});
+
+test('E49 activity is the newest tool, never You or Done', t => {
+  const s = session(t);
+  s.agent('x', [toolUse('Bash', 't1'), stopped('end_turn')]);
+  assert.strictEqual(s.get('x').activity, 'Bash');
+});
+
 test('E49 harness blocks and the interrupt line are not messages', t => {
   const s = session(t);
-  s.agent('x', [
+  s.selfLog([
     toolUse('Bash', 't1'),
     saidByYou('<system-reminder>something injected</system-reminder>'),
     saidByYou('[Request interrupted by user for tool use]'),
     saidByYou('   '),
   ]);
-  assert.deepStrictEqual(s.get('x').recent.filter(c => c.tool === 'You'), []);
+  assert.deepStrictEqual(s.self().recent.filter(c => c.tool === 'You'), []);
 });
 
 test('E49 a session keeps your last message once it drops out of the tail', t => {

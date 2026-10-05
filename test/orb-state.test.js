@@ -52,6 +52,15 @@ test('nothing run yet, or a message from you, is thinking', () => {
   assert.strictEqual(orbStateFor(agent({ id: null, tool: 'Done', say: 'all set' })), 'solving');
 });
 
+test('skills and planning weave', () => {
+  for (const t of ['Skill', 'TodoWrite', 'ExitPlanMode']) {
+    assert.strictEqual(orbStateFor(agent(call(t))), 'weaving', t);
+  }
+  assert.strictEqual(orbStateFor(agent(call('WebFetch'))), 'searching');
+  assert.strictEqual(orbStateFor(agent(call('MultiEdit'))), 'composing');
+  assert.strictEqual(orbStateFor(agent(call('PowerShell'))), 'working');
+});
+
 test('never the ring or the morph, and every other shape is used', () => {
   const tools = ['Grep', 'Read', 'Edit', 'Bash', 'Agent', 'Skill', 'TodoWrite', 'ExitPlanMode',
                  'WebFetch', 'Write', 'mcp__x__y', 'SomethingNew'];

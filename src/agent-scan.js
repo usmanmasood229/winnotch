@@ -123,7 +123,7 @@ function sessionProbe(file) {
   try { st = fs.statSync(file); } catch { return EMPTY_PROBE; }
   const c = sessionProbeCache.get(file);
   if (c && c.mtime === st.mtimeMs && c.size === st.size) return c.probe;
-  const probe = readLog(readTail(file, st.size));
+  const probe = readLog(readTail(file, st.size), true);
   // recent is newest first, so the newest of yours is the first one found, and a
   // remembered one is older than everything in the tail: it belongs on the end.
   const said = probe.recent.find(r => r.tool === 'You');
@@ -152,8 +152,7 @@ const HEAD_BYTES = 384 * 1024;
 // ponytail: cleared wholesale past 64 logs; prune by live session if that churns.
 const promptCache = new Map();
 function readPrompt(file) {
-  const known = promptCache.get(file);
-  if (known) return known;
+  if (promptCache.has(file)) return promptCache.get(file);
   let fd;
   try {
     fd = fs.openSync(file, 'r');
@@ -177,6 +176,13 @@ function readPrompt(file) {
         promptCache.set(file, t);
         return t;
       }
+    }
+    // A full head with no prompt in it will never have one (only the head is
+    // read), so remember the miss too: uncached, an agent named this way had its
+    // log reopened on every scan. A short head may still grow one; read again.
+    if (n === HEAD_BYTES) {
+      if (promptCache.size >= 64) promptCache.clear();
+      promptCache.set(file, '');
     }
   } catch {}
   finally { if (fd !== undefined) { try { fs.closeSync(fd); } catch {} } }
@@ -318,7 +324,10 @@ function isInterrupt(content) {
     c && c.type === 'text' && typeof c.text === 'string' && c.text.startsWith(INTERRUPT));
 }
 
-function readLog(tail) {
+// fromYou: whether user text in this log is what you typed. True for a session
+// log; a subagent's user records are the task its parent gave it, and showing
+// those as yours pinned the parent's prompt in the column as "You".
+function readLog(tail, fromYou) {
   const lines = tail.split('\n').filter(Boolean);
 
   let ended = false;
@@ -344,7 +353,10 @@ function readLog(tail) {
       title = rec.aiTitle.trim();
       continue;
     }
-    const content = rec.message && rec.message.content;
+    let content = rec.message && rec.message.content;
+    // What you type can be logged as a plain string rather than an array of
+    // blocks; read it as one text block, or it was never shown as yours.
+    if (typeof content === 'string' && rec.type === 'user') content = [{ type: 'text', text: content }];
     // Whether the turn had already ended before this record: then a pending
     // `say` is that turn's closing message, not narration for a call to come.
     const wasEnded = ended;
@@ -377,7 +389,7 @@ function readLog(tail) {
       // everything it injects under a user record -- skill bodies, image notes,
       // reminders -- which was 59 of 154 user records in one session log; without
       // it the panel fills with those instead of with anything you said.
-      if (rec.type === 'user' && rec.isMeta !== true
+      if (fromYou && rec.type === 'user' && rec.isMeta !== true
           && c && c.type === 'text' && typeof c.text === 'string') {
         const said = c.text.trim();
         // A leading '<' is one of the harness's own blocks, and the interrupt line
@@ -447,7 +459,8 @@ function readLog(tail) {
     finished: ended,
     title,
     recent: shown.reverse(),            // newest first, the way the panel reads it
-    activity: recent.length ? recent[recent.length - 1].tool : null,
+    // The newest tool call; You and Done entries are not tools.
+    activity: (recent.slice().reverse().find(c => c.tool !== 'You' && c.tool !== 'Done') || {}).tool || null,
   };
 }
 
@@ -492,7 +505,7 @@ function readAgent(dir, id, now, seen) {
   let c = agentCache.get(metaPath);
   if (!c || c.metaMtime !== metaSt.mtimeMs || c.logMtime !== logMtime || c.logSize !== logSize) {
     const meta = agentMeta(readJSON(metaPath));
-    const probe = meta && logSt ? readLog(readTail(jsonl, logSt.size)) : EMPTY_PROBE;
+    const probe = meta && logSt ? readLog(readTail(jsonl, logSt.size), false) : EMPTY_PROBE;
     c = { metaMtime: metaSt.mtimeMs, logMtime, logSize, meta, probe };
     agentCache.set(metaPath, c);
   }

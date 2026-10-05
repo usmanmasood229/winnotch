@@ -335,10 +335,12 @@ html,body {
    A thin line of light along the bottom edge with a low glow above it, in the
    system green (#30d158). The old version was a 62% wash over the bottom half
    for 2.6 s: a muddy green haze closed, and open it sat over the controls and
-   tinted them. z-index 1 keeps it above the panel's fill but under its contents.
+   tinted them. z-index 0, not 1, for the reason #glass-root gives: #pill and
+   #panel are positioned at z-index auto and come later in the markup, so they
+   paint over it, and a positive z-index would put it over their controls again.
    Never takes a click. */
 #done-flash {
-  position:absolute; inset:0; z-index:1;
+  position:absolute; inset:0; z-index:0;
   pointer-events:none; opacity:0;
   overflow:hidden;          /* the light must not spill past the rounded corners */
 }
@@ -365,7 +367,7 @@ html,body {
 }
 
 /* ── Waiting on you, from the outside ──
-   The same wash as the finished one, in amber and breathing instead of a single
+   An amber wash rising from the bottom edge, breathing rather than a single
    pass, because this one is not an event: it stays until you answer. */
 #perm-glow {
   position:absolute; inset:0; z-index:5;
@@ -409,7 +411,7 @@ html,body {
   animation:clPulse 1.8s ease-in-out infinite alternate;
 }
 .agent-av .eye {
-  fill:#ffffff;
+  fill:#000000;
   transform-box:fill-box; transform-origin:center;
   animation:clBlink 3s ease-in-out infinite;
 }
@@ -458,10 +460,10 @@ html,body {
 
 /* ── Collapsed: the worker at one end, its crew at the other ── */
 /* Claude and its crew take the right-hand end of the pill, opposite the art. */
-/* Spans the pill rather than shrink-wrapping the crew, because the mark walks
-   inside this box: pinned to the right it had only its own width to move in, so
-   every path drawn here stayed in the corner however it was shaped. The crew
-   still sits at the right-hand end; only the box it hangs off got wider. */
+/* Spans the pill rather than shrink-wrapping the crew, because the mark plays
+   inside this box (the romp, between ROMP_X_MIN and ROMP_X_MAX): pinned to the
+   right it would have only its own width to move in. The crew still sits at the
+   right-hand end; only the box it hangs off got wider. */
 #agent-mini {
   display:none; align-items:center; gap:8px; justify-content:flex-end;
   position:absolute; top:0; bottom:0; left:0; right:11px;
@@ -490,11 +492,11 @@ html,body {
   display:flex; align-items:center; justify-content:center;
 }
 #notch-content.agents:not(.open) #agent-mini-av > * {
+  /* The mark's own 17px, centred in the 29px box: at the box's height the 85%
+     pivot fell ~4px below the feet, so a spin dipped instead of leaping. */
+  width:17px; height:17px;
   transform-origin:50% 85%;   /* the feet, so a squash sits down rather than shrinking */
 }
-/* Nothing moving, nothing walking -- the mark inside it included. */
-#notch-content.agents:not(.open) .agent-av.bad,
-#notch-content.agents:not(.open) .agent-av.bad > * { animation:none; }
 #agent-mini-grid { display:flex; align-items:center; gap:4px; }
 #agent-mini-grid canvas { display:block; }
 /* The closed orb's slot: one canvas that reshapes from kind to kind. */
@@ -551,7 +553,8 @@ html,body {
 }
 /* With sessions in more than one project, #ap-where becomes a row of project
    tabs: All, then one per project. Same quiet chip as the view tabs.
-   ponytail: no scrolling; past ~5 long names the last chips are clipped. */
+   All and the picked tab never shrink; the others ellipsize to share the rest.
+   ponytail: no scrolling; with ~5+ long names the unpicked ones read as "Proj…". */
 /* No align-self: the head aligns on baseline, so the chips' text sits on the
    same line as "N agents working". */
 /* Padding gives the 20px chips room inside #ap-where's overflow clip; the
@@ -568,6 +571,7 @@ html,body {
 }
 .ap-proj:hover { color:#c9cdd4; background:rgba(255,255,255,.06); }
 .ap-proj.on { color:#f5f6f8; background:#1d1f23; }
+.ap-proj.on, .ap-proj:first-child { flex-shrink:0; }
 /* In All, each session says which project it is in, on a line under its title
    so the title keeps the column's full width. Height: H_PROJ. */
 .ap-step .lblcol { display:flex; flex-direction:column; min-width:0; }
@@ -639,8 +643,17 @@ html,body {
 #notch-content.agents.open.music #ap-body { display:none; }
 #notch-content.agents.open.music #panel {
   display:flex; top:34px;          /* clear of the header strip */
+  /* Its own height, not --music-h: that already counts the 34px strip, so
+     starting 34px down at that height hung the controls off the bottom. */
+  height:var(--panel-h);
 }
-#notch-content.agents.open.music #agents-panel { padding-bottom:0; }
+/* The notch narrows to the player's width here (EW), so the panel holding the
+   tabs narrows with it. Left at the agents width and centred, its left edge --
+   where the tabs are -- sat outside the notch, and there was no way back. */
+#notch-content.agents.open.music #agents-panel {
+  padding-bottom:0;
+  width:var(--panel-w); margin-left:calc(var(--panel-w) / -2);
+}
 #notch-content.agents.open.music #ap-count,
 #notch-content.agents.open.music #ap-where { display:none; }
 /* The glass stays. It refracts behind the cards, and the cards themselves are
@@ -967,6 +980,10 @@ html,body {
    clamped the way the running narration is. display:block is what turns the
    clamp off -- -webkit-line-clamp only bites on a -webkit-box. */
 .tick-final .tick-say { color:#ffffff; display:block; -webkit-line-clamp:none; }
+/* A reply can also sit mid-history now (the one you answered, just above your
+   next message). Only the newest is read in full; an older one clamps like the
+   narration, or a 12000-character reply would push the panel to its cap. */
+.tick-final:not(.newest) .tick-say { display:-webkit-box; -webkit-line-clamp:3; }
 
 /* What you said, in among the calls, so the column reads as the exchange it was
    and not only one side of it. It sits against a rule down the left rather than
@@ -989,7 +1006,10 @@ html,body {
 }
 /* Beats .tick-group:not(.done-row), which would otherwise turn the newest one
    white and lose the distinction exactly when it matters most. */
-.tick-group.tick-you .tick-say { color:#c3c8d1; font-weight:600; -webkit-line-clamp:4; }
+/* :not(.done-row) as well, or the equally specific live rule further down wins
+   while yours is the newest entry and turns it white like the narration. */
+.tick-group.tick-you .tick-say,
+.tick-group.tick-you:not(.done-row) .tick-say { color:#c3c8d1; font-weight:500; -webkit-line-clamp:4; }
 
 /* A call and the thought behind it travel together. */
 .tick-group {
@@ -1752,9 +1772,9 @@ const edgePath   = document.getElementById('notch-edge');
 const glassEdge  = document.getElementById('glass-edge');
 
 // How much smaller the card is than the notch around it: the panel's own padding
-// on each side, and on the vertical the header strip above it as well. Measured
-// against the laid-out panel rather than added up from the rules, so one number
-// moves if the padding does.
+// on each side, and on the vertical the header strip above it as well. These
+// mirror #agents-panel's padding and #ap-head's height, and the 24 is also in
+// #ap-main's min-width calc: change them together.
 const CARD_INSET_X = 24;
 const CARD_INSET_Y = 52;
 
@@ -2600,7 +2620,7 @@ setInterval(poll, 2000);
 
   // The closed orb taking turns between the kinds of work under way.
   // ponytail: the 2.6 s timer keeps ticking while the panel is open (it skips
-  // the swap); stopped outright only when the set of kinds changes or empties.
+  // the swap); stopped only when fewer than two kinds are left or nothing runs.
   const MINI_SWITCH_MS = 2600;
   let miniHolder = null, miniTimer = null, miniCycle = [], miniShown = null;
   // One canvas for the life of the slot: a new kind reshapes it (morphOrb), so
@@ -2615,17 +2635,29 @@ setInterval(poll, 2000);
     miniHolder.textContent = '';
     miniHolder.appendChild(next);
   }
+  // Called on every change to the set of kinds. The timer is NOT restarted here:
+  // with several agents the set changes almost every poll, and a fresh 2.6 s
+  // wait each time meant the turn never came. It keeps its own rhythm and reads
+  // the current set (miniCycle) when it fires.
   function cycleMini(states) {
     miniCycle = states;
     // Carry on with the one already showing if it is still under way.
     showMiniOrb(states.includes(miniShown) ? miniShown : states[0]);
-    if (states.length < 2) return;
+    // Reduce motion: no taking turns, it stays on the first kind.
+    if (states.length < 2 || reduceMotion.matches) { stopMiniCycle(); return; }
+    if (miniTimer) return;
     miniTimer = setInterval(() => {
       if (contEl.classList.contains('open') || document.hidden) return;
       showMiniOrb(miniCycle[(miniCycle.indexOf(miniShown) + 1) % miniCycle.length]);
     }, MINI_SWITCH_MS);
   }
   function stopMiniCycle() { clearInterval(miniTimer); miniTimer = null; }
+  // The setting can flip while the cycle runs: stop it at once, or pick it up
+  // again when motion comes back.
+  reduceMotion.addEventListener('change', () => {
+    if (reduceMotion.matches) stopMiniCycle();
+    else if (miniHolder && miniCycle.length) cycleMini(miniCycle);
+  });
   // Which agents were running last time, so a finish can be spotted.
   let wasRunning = new Set();
   const flashEl = document.getElementById('done-flash');
@@ -2727,6 +2759,16 @@ setInterval(poll, 2000);
     const body = document.createElementNS(SVG, 'path');
     body.setAttribute('d', CL_BODY);
     g.appendChild(body);
+
+    // The beam sits between the body and the eyes: drawn over everything it
+    // swept the eyes white on every pass, so black eyes flashed white.
+    const scan = document.createElementNS(SVG, 'rect');
+    scan.setAttribute('class', 'scan');
+    scan.setAttribute('x', '0'); scan.setAttribute('y', '0');
+    scan.setAttribute('width', '500'); scan.setAttribute('height', '60');
+    scan.setAttribute('mask', 'url(#clMask)');
+    g.appendChild(scan);
+
     for (const e of CL_EYES) {
       const eye = document.createElementNS(SVG, 'rect');
       eye.setAttribute('class', 'eye');
@@ -2735,13 +2777,6 @@ setInterval(poll, 2000);
       g.appendChild(eye);
     }
     svg.appendChild(g);
-
-    const scan = document.createElementNS(SVG, 'rect');
-    scan.setAttribute('class', 'scan');
-    scan.setAttribute('x', '0'); scan.setAttribute('y', '0');
-    scan.setAttribute('width', '500'); scan.setAttribute('height', '60');
-    scan.setAttribute('mask', 'url(#clMask)');
-    svg.appendChild(scan);
 
     return svg;
   }
@@ -2761,22 +2796,24 @@ setInterval(poll, 2000);
   // animates from where it was, so nothing piles up as fill:forwards layers.
   // Only translate/scale/rotate/opacity, so it all runs on the compositor.
   const ROMP_X_MIN = 8, ROMP_X_MAX = 118;      // see #agent-mini-av in the CSS
+  // With the album art showing on the left (6..23px), the lane starts past it.
+  const ROMP_X_MIN_ART = 28;
   (() => {
     const box = miniAv;
     const mark = () => miniAv.firstElementChild;
+    const art = document.getElementById('pill-art');
     const live = new Set();                     // animations to cancel on stop
     let on = false, gen = 0, x = 60, face = 1, last = '', napTimer = null, napDone = null;
     const rnd = (a, b) => a + Math.random() * (b - a);
+    const xMin = () => (art && art.classList.contains('visible') ? ROMP_X_MIN_ART : ROMP_X_MIN);
 
-    function play(el, frames, opts) {
-      const a = el.animate(frames, opts);
-      live.add(a);
-      return a.finished.catch(() => {}).finally(() => live.delete(a));
-    }
+    function place() { box.style.translate = x + 'px 0'; box.style.scale = face + ' 1'; }
+    // Stopped (stalled, reduce motion, hidden) it waits at the start of its lane,
+    // clear of the art, rather than at x=0 over the art and the pill's corner.
+    function rest() { x = xMin(); face = 1; place(); }
     function nap(ms) {
       return new Promise(res => { napDone = res; napTimer = setTimeout(res, ms); });
     }
-    function place() { box.style.translate = x + 'px 0'; box.style.scale = face + ' 1'; }
 
     // One hop: sits down on take-off, stretches at the top, lands soft.
     const HOP = h => [
@@ -2787,23 +2824,36 @@ setInterval(poll, 2000);
       { translate:'0 0',            scale:'1 1' },
     ];
 
-    function turn(to) {
-      if (to === face) return Promise.resolve();
-      const from = face; face = to; place();
-      return play(box, [{ scale: from + ' 1' }, { scale: to + ' 1' }], { duration: 160, easing: 'ease-in-out' });
-    }
-    async function travel(speed, hopMs, hopH) {
-      let to;
-      do { to = rnd(ROMP_X_MIN, ROMP_X_MAX); } while (Math.abs(to - x) < 22);
-      await turn(to > x ? 1 : -1);
-      const from = x, dur = Math.abs(to - from) / speed * 1000;
-      x = to; place();
-      await Promise.all([
-        play(box, [{ translate: from + 'px 0' }, { translate: to + 'px 0' }], { duration: dur, easing: 'ease-in-out' }),
-        play(mark(), HOP(hopH), { duration: hopMs, iterations: Math.max(1, Math.round(dur / hopMs)) }),
-      ]);
-    }
-    const ACTS = {
+    // The actions for one run of the loop. Every move checks that this run is
+    // still the current one: an act part way through an await when stop() runs
+    // must not carry on writing styles or starting animations nobody cancels.
+    function actsFor(g) {
+      const ok = () => on && g === gen;
+      function play(el, frames, opts) {
+        if (!ok()) return Promise.resolve();
+        const a = el.animate(frames, opts);
+        live.add(a);
+        return a.finished.catch(() => {}).finally(() => live.delete(a));
+      }
+      function turn(to) {
+        if (to === face || !ok()) return Promise.resolve();
+        const from = face; face = to; place();
+        return play(box, [{ scale: from + ' 1' }, { scale: to + ' 1' }], { duration: 160, easing: 'ease-in-out' });
+      }
+      async function travel(speed, hopMs, hopH) {
+        const lo = xMin();
+        let to;
+        do { to = rnd(lo, ROMP_X_MAX); } while (Math.abs(to - x) < 22);
+        await turn(to > x ? 1 : -1);
+        if (!ok()) return;
+        const from = x, dur = Math.abs(to - from) / speed * 1000;
+        x = to; place();
+        await Promise.all([
+          play(box, [{ translate: from + 'px 0' }, { translate: to + 'px 0' }], { duration: dur, easing: 'ease-in-out' }),
+          play(mark(), HOP(hopH), { duration: hopMs, iterations: Math.max(1, Math.round(dur / hopMs)) }),
+        ]);
+      }
+      return {
       walk:    () => travel(rnd(26, 40), 600, 4.5),
       dash:    () => travel(rnd(80, 110), 300, 2.5),
       idle:    () => nap(rnd(700, 2400)),
@@ -2820,7 +2870,8 @@ setInterval(poll, 2000);
                           { duration: 700, easing: 'ease-in-out' }),
       stretch: () => play(mark(), [{ scale:'1 1' }, { scale:'.88 1.18', offset:.3 }, { scale:'.88 1.18', offset:.6 },
                                    { scale:'1.14 .86', offset:.8 }, { scale:'1 1' }], { duration: 1300, easing: 'ease-in-out' }),
-    };
+      };
+    }
     // Busy: on the move. Thinking or idle: mostly sits and looks about.
     const MOODS = {
       running: { walk: 5, dash: 1, idle: 2, look: 2, jump: 2, spin: 1, wiggle: 1, stretch: 1 },
@@ -2836,21 +2887,24 @@ setInterval(poll, 2000);
     }
 
     async function loop(g) {
-      while (on && g === gen) await ACTS[choose()]();
+      const acts = actsFor(g);
+      while (on && g === gen) await acts[choose()]();
     }
     function start() {
       if (on || !mark()) return;
       on = true;
-      x = rnd(ROMP_X_MIN, ROMP_X_MAX); face = Math.random() < .5 ? 1 : -1; place();
-      play(box, [{ opacity: 0 }, { opacity: 1 }], { duration: 300 });
-      loop(++gen);
+      const g = ++gen;
+      x = rnd(xMin(), ROMP_X_MAX); face = Math.random() < .5 ? 1 : -1; place();
+      box.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300 });
+      loop(g);
     }
     function stop() {
-      if (!on) return;
-      on = false; gen++;
-      clearTimeout(napTimer); if (napDone) napDone();
-      for (const a of [...live]) a.cancel();
-      box.style.translate = box.style.scale = '';
+      if (on) {
+        on = false; gen++;
+        clearTimeout(napTimer); if (napDone) napDone();
+        for (const a of [...live]) a.cancel();
+      }
+      rest();
     }
     // Plays only while it can be seen and nothing is stuck: a stalled agent
     // keeps the mark still on purpose (.bad), and reduce motion means stay put.
@@ -2925,8 +2979,9 @@ setInterval(poll, 2000);
   // they sit on is transparent and always on top, so every frame they paint is a
   // full composite of it. At the display's own rate that measured 29% of a core in
   // the renderer and 43% in the GPU process, continuously, with the notch closed.
-  // They are a breathing blob: a third of the rate is not visibly different, and
-  // the drawing is time-based, so slowing it changes nothing but the sampling.
+  // At 20-26px a third of the rate is not visibly different, even on the busier
+  // shapes, and the drawing is time-based, so slowing it changes nothing but the
+  // sampling. A morph between shapes runs at full rate (morphUntil).
   const ORB_MS = 50;               // 20fps
   let orbLast = -Infinity;
 
@@ -2951,6 +3006,18 @@ setInterval(poll, 2000);
       if (o.canvas.checkVisibility && !o.canvas.checkVisibility()) continue;
       const ctx = o.canvas.getContext('2d');
       if (!ctx) continue;
+      // Reduce motion: one still frame, as the library's own wrapper does, drawn
+      // once and left (o.still is cleared when the setting or the shape changes).
+      if (reduceMotion.matches) {
+        if (o.still) continue;
+        o.still = true; o.from = null;
+        ctx.clearRect(0, 0, o.canvas.width, o.canvas.height);
+        ctx.save(); ctx.scale(o.dpr, o.dpr);
+        MODE_DRAWS_SAFE(o.mode)(ctx, ORB_PX, 0.6 * o.speed, true, o.opts);
+        ctx.restore();
+        continue;
+      }
+      o.still = false;
       ctx.clearRect(0, 0, o.canvas.width, o.canvas.height);
       ctx.save();
       ctx.scale(o.dpr, o.dpr);
@@ -2969,6 +3036,12 @@ setInterval(poll, 2000);
     }
     if (orbs.size) orbRaf = requestAnimationFrame(paintOrbs);
   }
+
+  // Turning reduce motion on or off redraws every orb in its new mode.
+  reduceMotion.addEventListener('change', () => {
+    for (const o of orbs) o.still = false;
+    if (orbs.size && !orbRaf) orbRaf = requestAnimationFrame(paintOrbs);
+  });
 
   // Part way from one shape's dots to another's, f in [0, 1]. Dots are paired in
   // order of their angle round the centre, so each one travels a short way
@@ -2997,6 +3070,9 @@ setInterval(poll, 2000);
   function morphOrb(canvas, state) {
     const o = canvas && canvas._orb;
     if (!o || !window.Orbs) return false;
+    // Built for another screen's scale: say no, so the caller makes a fresh
+    // canvas at this one's (miniKey carries devicePixelRatio for this).
+    if (o.baseDpr !== (devicePixelRatio || 1)) return false;
     let preset;
     try { preset = window.Orbs.resolvePreset(state, ORB_PX); } catch { return false; }
     // Back on the painter's list: it drops a canvas that was off the page at a
@@ -3004,11 +3080,12 @@ setInterval(poll, 2000);
     orbs.add(o);
     if (!orbRaf) orbRaf = requestAnimationFrame(paintOrbs);
     if (preset.mode === o.mode) return true;
-    o.from = { mode: o.mode, speed: o.speed, opts: o.opts };
+    // Reduce motion: change shape without the glide (the still frame redraws).
+    o.from = reduceMotion.matches ? null : { mode: o.mode, speed: o.speed, opts: o.opts };
     o.mode = preset.mode; o.speed = preset.speed; o.opts = preset.opts;
+    o.still = false;
     o.mStart = performance.now();
-    morphUntil = o.mStart + ORB_MORPH_MS;
-    if (!orbRaf) orbRaf = requestAnimationFrame(paintOrbs);
+    if (o.from) morphUntil = o.mStart + ORB_MORPH_MS;
     return true;
   }
   const MODE_DRAWS_SAFE = mode =>
@@ -3029,8 +3106,8 @@ setInterval(poll, 2000);
     canvas.style.height = size + 'px';
     // The preset is tuned for 20; scaling the whole context keeps its
     // proportions while filling a larger box.
-    const rec = { canvas, dpr: dpr * (size / ORB_PX), mode: preset.mode,
-                  speed: preset.speed, opts: preset.opts, from: null, mStart: 0 };
+    const rec = { canvas, dpr: dpr * (size / ORB_PX), baseDpr: dpr, mode: preset.mode,
+                  speed: preset.speed, opts: preset.opts, from: null, mStart: 0, still: false };
     canvas._orb = rec;                 // so morphOrb can reshape it later
     orbs.add(rec);
     // One loop drives every orb on screen, rather than one timer each.
@@ -3166,7 +3243,6 @@ setInterval(poll, 2000);
     if (miniKey !== lastMiniKey) {
       lastMiniKey = miniKey;
       miniGrid.textContent = '';
-      stopMiniCycle();
       if (lead && window.Orbs) {
         // The same slot and canvas carry over, so a change in what is running
         // morphs the orb too rather than swapping it. Re-attached in the same
@@ -3178,6 +3254,7 @@ setInterval(poll, 2000);
         miniGrid.appendChild(miniHolder);
         cycleMini(miniStates);
       } else {
+        stopMiniCycle();
         miniHolder = null;
         for (const a of crew.slice(0, MAX_MINI)) {
           const d = document.createElement('i');
@@ -3203,10 +3280,13 @@ setInterval(poll, 2000);
     // One project: its name. Several: a tab each, so jumping between projects you
     // can tell which session is where, or narrow the list to one of them.
     const projects = [...new Set(live.map(a => a.project).filter(Boolean))].sort();
-    if (projPick && !projects.includes(projPick)) projPick = null;
+    // A pick lasts while the panel is open; shut, the pill counts every agent, so
+    // opening it again starts on All rather than a quietly filtered list.
+    if (!isOpen || (projPick && !projects.includes(projPick))) projPick = null;
     const multi = projects.length > 1;
-    const projKey = multi ? 'tabs:' + projects.join('\u0001') + '|' + projPick
-                          : 'one:' + (projects[0] || '');
+    // Keyed on the projects only: picking one only moves the highlight, so the
+    // button you pressed (and keyboard focus on it) stays.
+    const projKey = multi ? 'tabs:' + projects.join('\u0001') : 'one:' + (projects[0] || '');
     if (projKey !== lastProjKey) {
       lastProjKey = projKey;
       whereEl.textContent = '';
@@ -3214,8 +3294,9 @@ setInterval(poll, 2000);
       if (multi) {
         for (const p of [null, ...projects]) {
           const b = document.createElement('button');
-          b.className = 'ap-proj' + (p === projPick ? ' on' : '');
+          b.className = 'ap-proj';
           b.textContent = p || 'All';
+          b._proj = p;
           b.addEventListener('click', e => {
             e.stopPropagation();
             projPick = p; picked = null;
@@ -3226,6 +3307,11 @@ setInterval(poll, 2000);
       } else {
         whereEl.textContent = projects[0] || '';
       }
+    }
+    for (const b of whereEl.children) {
+      const on = b._proj === projPick;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', String(on));
     }
     const shown = projPick ? live.filter(a => a.project === projPick) : live;
     countEl.textContent = shown.length === 1 ? '1 agent working'
@@ -3244,8 +3330,11 @@ setInterval(poll, 2000);
       if (!mine.length) continue;
       // Its own row heads the group whether or not it passed the live filter, so
       // every agent sits under the chat that actually started it.
+      // The fallback comes from the raw snapshot, which carries no project; the
+      // row needs it most here (a session idle past LINGER_MS, its agents running).
+      const raw = sess.agents.find(a => a.isSession);
       const head = mine.find(a => a.isSession)
-                || sess.agents.find(a => a.isSession);
+                || (raw && Object.assign({ project: sess.project }, raw));
       if (head) ordered.push(head);
       for (const a of mine) if (!a.isSession) ordered.push(a);
     }
@@ -3593,7 +3682,8 @@ setInterval(poll, 2000);
   // came through as one run of pipes across the column, which is unreadable and
   // was the worst thing a message could contain.
   const MD_ROW    = /^\s*\|(.*)\|\s*$/;
-  const MD_RULE   = /^[\s:|-]+$/;
+  // One cell of that rule: dashes, optionally colon-aligned. A blank cell is not.
+  const MD_RULE_CELL = /^\s*:?-+:?\s*$/;
   // A fence line: the run of backticks, then whatever follows it. The two are
   // captured separately because both decide things. Opening needs the rest of the
   // line to hold no backtick of its own, which is CommonMark's rule for the
@@ -3612,6 +3702,7 @@ setInterval(poll, 2000);
     let pre = null;            // the fenced block being filled, when inside one
     let fenceLen = 0;          // how long the run that opened it was
     let table = null;          // the table being filled, while rows keep coming
+    let tableRows = 0;         // rows it has so far, so the rule is only line two
     for (const line of lines) {
       const fence = MD_FENCE.exec(line);
       if (pre) {
@@ -3642,10 +3733,16 @@ setInterval(poll, 2000);
           table.className = 'say-table';
           host.appendChild(table);
           para = null;
+          tableRows = 0;
         }
         // The rule under the header carries no content, only the fact that the
-        // row above it was a header.
-        if (MD_RULE.test(line)) { table.classList.add('headed'); continue; }
+        // row above it was a header. Only as the second line, and only when every
+        // cell is a run of dashes: a row of "-" (meaning none) or of blanks is a
+        // row, and used to vanish and bold the row above it.
+        if (tableRows === 1 && cells[1].split('|').every(c => MD_RULE_CELL.test(c))) {
+          table.classList.add('headed'); tableRows++; continue;   // one rule only
+        }
+        tableRows++;
         const tr = document.createElement('div');
         tr.className = 'say-tr';
         for (const cell of cells[1].split('|')) {
@@ -3692,7 +3789,17 @@ setInterval(poll, 2000);
   // A code span closes on a run of exactly as many backticks as opened it
   // (CommonMark), so ```npm run build``` is one span, not `` + code + ``.
   const MD_INLINE = /(?<!`)(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)|\*\*/g;
+  const MD_CODE   = /(?<!`)(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/g;
   function writeInline(host, text) {
+    // Links come down to their label first, outside code spans only, so a bold
+    // label ([**the guide**](url)) is still one link when ** is split on below.
+    // Only a link's label is worth the width; nothing here is clickable.
+    let flat = '', from = 0;
+    for (const m of text.matchAll(MD_CODE)) {
+      flat += text.slice(from, m.index).replace(MD_LINK, '$1') + m[0];
+      from = m.index + m[0].length;
+    }
+    text = flat + text.slice(from).replace(MD_LINK, '$1');
     const toks = [];             // strings, '**' markers, and { code } spans
     let at = 0;
     for (const m of text.matchAll(MD_INLINE)) {
@@ -3716,8 +3823,7 @@ setInterval(poll, 2000);
         code.textContent = tok.code;
         into.appendChild(code);
       } else {
-        // Only a link's label is worth the width; nothing here is clickable.
-        into.appendChild(document.createTextNode(tok.replace(MD_LINK, '$1')));
+        into.appendChild(document.createTextNode(tok));
       }
     }
   }
@@ -3766,6 +3872,8 @@ setInterval(poll, 2000);
         row.classList.toggle('live', !done);
       }
       node.classList.toggle('done-row', done);
+      // Only the newest closing reply is read in full (see .tick-final:not(.newest)).
+      node.classList.toggle('newest', i === newest);
       // Only the arriving entry animates in; the rest are already history.
       if (i !== newest) node.style.animation = 'none';
       callsEl.appendChild(node);
@@ -3986,7 +4094,7 @@ window.glassRefresh = (radius, w, h) => {
   // and this function five more: measured at 5ms a frame, which is most of a
   // 16.7ms budget and took the open from 60fps to about 27. The key only has to
   // change exactly when the geometry does, and these numbers do that.
-  const key = (w != null ? w + 'x' + h : pane.offsetWidth + 'x' + pane.offsetHeight) + 'r' + r;
+  const key = w + 'x' + h + 'r' + r;
   if (key === lastGlassKey) return;
   lastGlassKey = key;
   instance.markChanged();
