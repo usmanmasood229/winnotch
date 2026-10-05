@@ -3532,6 +3532,20 @@ setInterval(poll, 2000);
   callsEl.addEventListener('scroll', () => {
     tickFollow = callsEl.scrollTop + callsEl.clientHeight >= callsEl.scrollHeight - 24;
   });
+  // Opening the panel shows the newest entry, not the top. The column is
+  // display:none while shut, so the scroll syncTicker sets then lands on an empty
+  // box, and nothing scrolled it again once the panel grew to full size: you had
+  // to scroll down to the last thing that ran. Every open follows the newest
+  // again, and while following, any change in the column's size (the open
+  // spring, fitHeight) keeps it pinned to the bottom.
+  const pinNewest = () => { if (tickFollow) callsEl.scrollTop = callsEl.scrollHeight; };
+  new ResizeObserver(pinNewest).observe(callsEl);
+  let callsWasOpen = false;
+  new MutationObserver(() => {
+    const open = contEl.classList.contains('open');
+    if (open && !callsWasOpen) { tickFollow = true; pinNewest(); }
+    callsWasOpen = open;
+  }).observe(contEl, { attributes: true, attributeFilter: ['class'] });
 
   document.getElementById('ap-read-back').addEventListener('click', e => {
     e.stopPropagation();
