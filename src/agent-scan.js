@@ -105,12 +105,34 @@ function subagentsDir(sessionId, cwd) {
 // A session's own log is appended every turn, but between two scans it is
 // usually untouched; re-parsing its tail every few seconds was most of a scan.
 const sessionProbeCache = new Map();   // file -> { mtime, size, probe }
+
+// The last thing you said, kept per log across reads. One long turn buries it:
+// the message that prompted this ended up 493KB back in a 29MB log, and the scan
+// only reads the last 256KB, so the panel lost it even though nothing about it
+// had changed. Reading further back every tick would mean parsing megabytes of
+// JSON for one line, so it is caught on the way past instead -- sending something
+// grows the log, which is exactly what makes the next scan re-read its tail, and
+// the message is at the end of it. The cost is one short string per session.
+//
+// ponytail: a message sent before the app started is not in any tail it ever
+// reads, so it is not shown. Read backwards in chunks if that turns out to matter.
+const lastSaid = new Map();            // file -> the newest { tool: 'You' } entry
+
 function sessionProbe(file) {
   let st;
   try { st = fs.statSync(file); } catch { return EMPTY_PROBE; }
   const c = sessionProbeCache.get(file);
   if (c && c.mtime === st.mtimeMs && c.size === st.size) return c.probe;
   const probe = readLog(readTail(file, st.size));
+  // recent is newest first, so the newest of yours is the first one found, and a
+  // remembered one is older than everything in the tail: it belongs on the end.
+  const said = probe.recent.find(r => r.tool === 'You');
+  if (said) {
+    if (lastSaid.size >= 64) lastSaid.clear();
+    lastSaid.set(file, said);
+  } else if (lastSaid.has(file)) {
+    probe.recent = probe.recent.concat([lastSaid.get(file)]);
+  }
   if (sessionProbeCache.size >= 64) sessionProbeCache.clear();
   sessionProbeCache.set(file, { mtime: st.mtimeMs, size: st.size, probe });
   return probe;
@@ -341,6 +363,24 @@ function readLog(tail) {
         say = c.text.trim().slice(0, SAY_MAX);
         continue;
       }
+      // What you typed, in among the calls, so the history reads as the exchange
+      // it was rather than only one side of it. The guard above deliberately keeps
+      // user records out of the agent's narration, so they arrive here as an entry
+      // of their own instead of being dropped. isMeta is what the harness puts on
+      // everything it injects under a user record -- skill bodies, image notes,
+      // reminders -- which was 59 of 154 user records in one session log; without
+      // it the panel fills with those instead of with anything you said.
+      if (rec.type === 'user' && rec.isMeta !== true
+          && c && c.type === 'text' && typeof c.text === 'string') {
+        const said = c.text.trim();
+        // A leading '<' is one of the harness's own blocks, and the interrupt line
+        // is the trace of pressing Esc, not something that was typed.
+        if (said && said[0] !== '<' && !said.startsWith(INTERRUPT)) {
+          recent.push({ id: null, tool: 'You', say: said.slice(0, SAY_MAX),
+                        label: '', detail: '', delta: null, diff: null });
+        }
+        continue;
+      }
       if (c && c.type === 'tool_use' && c.name) {
         const call = {
           id: c.id || null,
@@ -377,12 +417,22 @@ function readLog(tail) {
   // fresh copy on every block that came past, so the message showed up twice.
   if (say) recent.push({ id: null, tool: 'Done', say, label: '', detail: '', delta: null, diff: null });
 
+  // The panel has room for a handful, and those are the newest ones -- except
+  // that a busy turn makes seven tool calls in well under a minute, so what you
+  // said would scroll out of sight almost as soon as you said it. The newest one
+  // is carried through the trim, in its own place in the order, which is above
+  // the calls it set off.
+  const shown = recent.slice(-RECENT_MAX);
+  if (!shown.some(c => c.tool === 'You')) {
+    for (let i = recent.length - shown.length - 1; i >= 0; i--) {
+      if (recent[i].tool === 'You') { shown.unshift(recent[i]); break; }
+    }
+  }
+
   return {
     finished: ended,
     title,
-    // Newest first: the panel has room for a handful and those are the ones
-    // worth showing.
-    recent: recent.slice(-RECENT_MAX).reverse(),
+    recent: shown.reverse(),            // newest first, the way the panel reads it
     activity: recent.length ? recent[recent.length - 1].tool : null,
   };
 }
@@ -396,14 +446,18 @@ const agentCache = new Map();
 
 // The fields used from a meta file, or null when it is not one we understand.
 function agentMeta(meta) {
-  // No agentType or description means the format moved under us. Skip it rather
-  // than render something wrong.
+  // No agentType means the format moved under us. Skip it rather than render
+  // something wrong.
   if (!meta || typeof meta !== 'object') return null;
   if (typeof meta.agentType !== 'string' || !meta.agentType) return null;
-  if (typeof meta.description !== 'string' || !meta.description) return null;
+  // A description is only usually there. An agent a slash command starts has a
+  // type and nothing else -- measured on a running /code-review, whose meta was
+  // {agentType, spawnDepth, requestShape, requestNonInteractive}. Requiring one
+  // meant that agent never appeared at all, which is worse than naming it from
+  // its opening line; the caller does that.
   return {
     type: meta.agentType,
-    description: meta.description,
+    description: typeof meta.description === 'string' ? meta.description.trim() : '',
     parentId: strOrNull(meta.parentAgentId),
     depth: Number.isFinite(meta.spawnDepth) ? meta.spawnDepth : 1,
     shape: strOrNull(meta.requestShape),
@@ -443,7 +497,12 @@ function readAgent(dir, id, now, seen) {
   return {
     id,
     type: meta.type,
-    description: meta.description,
+    // Named by whoever started it when they said; otherwise by the line it was
+    // started with, which is what the agent was actually asked to do, and only
+    // then by its type, which says almost nothing ("general-purpose").
+    description: meta.description
+      || (readPrompt(jsonl) || '').trim().split('\n')[0].slice(0, 80)
+      || meta.type,
     parentId: meta.parentId,
     depth: meta.depth,
     shape: meta.shape,

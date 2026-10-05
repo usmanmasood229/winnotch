@@ -242,15 +242,39 @@ test('a marker cut in half by the tail still ends the agent, unless a later reco
 test('E36 malformed agent meta is skipped without throwing; odd optional fields are dropped', t => {
   const s = session(t);
   s.agent('ok', [toolUse('Bash', 't1')], { spawnDepth: 'deep', parentAgentId: 5, model: {}, requestShape: 7 });
-  s.agent('bad-desc', [toolUse('Bash', 't1')], { description: 42 });
   s.agent('bad-type', [toolUse('Bash', 't1')], { agentType: {} });
-  s.agent('empty-desc', [toolUse('Bash', 't1')], { description: '' });
   const agents = s.read().agents;
-  assert.deepStrictEqual(agents.map(a => a.id), ['ok']);
+  assert.deepStrictEqual(agents.map(a => a.id), ['ok'], 'only the type is required');
   assert.strictEqual(agents[0].depth, 1);
   assert.strictEqual(agents[0].parentId, null);
   assert.strictEqual(agents[0].model, null);
   assert.strictEqual(agents[0].shape, null);
+});
+
+// A slash command starts an agent with a type and nothing else. Dropping those
+// meant a running agent was simply absent from the panel, with no sign of it.
+test('E50 an agent with no description is named from the line it was started with', t => {
+  const s = session(t);
+  s.agent('x', [
+    { type: 'user', message: { content: [{ type: 'text', text: 'Review target: `pr-54`\nmore detail here' }] } },
+    toolUse('Bash', 't1'),
+  ], { agentType: 'general-purpose', description: undefined });
+  assert.strictEqual(s.get('x').description, 'Review target: `pr-54`', 'first line only');
+});
+
+test('E50 a description that is not usable falls back the same way', t => {
+  const s = session(t);
+  const opener = [{ type: 'user', message: { content: [{ type: 'text', text: 'do the job' }] } }];
+  s.agent('num',   [...opener, toolUse('Bash', 't1')], { description: 42 });
+  s.agent('blank', [...opener, toolUse('Bash', 't2')], { description: '   ' });
+  for (const id of ['num', 'blank']) assert.strictEqual(s.get(id).description, 'do the job', id);
+});
+
+test('E50 with nothing to read, the type is the name rather than nothing', t => {
+  const s = session(t);
+  s.agent('x', [toolUse('Bash', 't1')], { agentType: 'general-purpose', description: '' });
+  // The opening record is an assistant turn, so there is no prompt line to take.
+  assert.strictEqual(s.get('x').description, 'general-purpose');
 });
 
 test('E37 malformed session records are skipped or cleaned, never thrown on', t => {
@@ -478,6 +502,85 @@ test('E47 an ordinary user message still means the turn carried on', t => {
   const s = session(t);
   s.agent('x', [toolUse('Bash', 't1'), stopped('end_turn'), userText]);
   assert.strictEqual(s.get('x').state, 'running', 'a reply after an end_turn reopens the turn');
+});
+
+// A message typed mid-run is part of the history; what the harness injects under
+// a user record is not. The two are only told apart by isMeta.
+const saidByYou = text => ({ type: 'user', message: { content: [{ type: 'text', text }] } });
+const injected  = text => ({ type: 'user', isMeta: true, message: { content: [{ type: 'text', text }] } });
+
+test('E49 what you typed shows up among the calls', t => {
+  const s = session(t);
+  s.agent('x', [toolUse('Bash', 't1'), saidByYou('stop and install'), toolUse('Read', 't2')]);
+  const recent = s.get('x').recent.slice().reverse();   // oldest first
+  assert.deepStrictEqual(recent.map(c => c.tool), ['Bash', 'You', 'Read']);
+  assert.strictEqual(recent[1].say, 'stop and install');
+});
+
+test('E49 a message of yours is not mistaken for the agent narrating', t => {
+  const s = session(t);
+  s.agent('x', [saidByYou('do the thing'), toolUse('Bash', 't1')]);
+  const recent = s.get('x').recent.slice().reverse();
+  assert.deepStrictEqual(recent.map(c => c.tool), ['You', 'Bash']);
+  assert.strictEqual(recent[1].say, 'next: t1', 'the call keeps the assistant text, not yours');
+});
+
+test('E49 what the harness injects under a user record is left out', t => {
+  const s = session(t);
+  s.agent('x', [
+    toolUse('Bash', 't1'),
+    injected('[Image: source: C:\\tmp\\shot.png]'),
+    injected('Base directory for this skill: C:\\skills\\pre-pr'),
+    saidByYou('carry on'),
+  ]);
+  const said = s.get('x').recent.filter(c => c.tool === 'You');
+  assert.strictEqual(said.length, 1, 'only the one that was typed');
+  assert.strictEqual(said[0].say, 'carry on');
+});
+
+test('E49 the newest thing you said survives a burst of calls', t => {
+  const s = session(t);
+  const calls = [];
+  for (let i = 0; i < 12; i++) calls.push(toolUse('Bash', 'b' + i));
+  s.agent('x', [saidByYou('first thing'), saidByYou('do it this way instead'), ...calls]);
+  const recent = s.get('x').recent.slice().reverse();
+  const said = recent.filter(c => c.tool === 'You');
+  assert.strictEqual(said.length, 1, 'kept, though twelve calls came after it');
+  assert.strictEqual(said[0].say, 'do it this way instead', 'the newest one, not the first');
+  assert.strictEqual(recent[0].tool, 'You', 'in order: above the calls it set off');
+});
+
+test('E49 harness blocks and the interrupt line are not messages', t => {
+  const s = session(t);
+  s.agent('x', [
+    toolUse('Bash', 't1'),
+    saidByYou('<system-reminder>something injected</system-reminder>'),
+    saidByYou('[Request interrupted by user for tool use]'),
+    saidByYou('   '),
+  ]);
+  assert.deepStrictEqual(s.get('x').recent.filter(c => c.tool === 'You'), []);
+});
+
+test('E49 a session keeps your last message once it drops out of the tail', t => {
+  const s = session(t);
+  s.selfLog([saidByYou('do it this way instead'), toolUse('Bash', 'b0')]);
+  const first = s.self().recent.filter(c => c.tool === 'You');
+  assert.strictEqual(first.length, 1, 'seen while it is still in the tail');
+
+  // The log moves on past the 256KB the scan reads, so the message is genuinely
+  // no longer in the tail: without the carry-over there is nothing left to find.
+  const bulk = [
+    { type: 'assistant', filler: 'x'.repeat(300 * 1024), message: { content: [] } },
+    toolUse('Bash', 'c0'),
+  ];
+  fs.appendFileSync(path.join(s.subs, '..', '..', s.sid + '.jsonl'),
+    bulk.map(l => JSON.stringify(l)).join('\n') + '\n');
+
+  const after = s.self().recent;
+  const said = after.filter(c => c.tool === 'You');
+  assert.strictEqual(said.length, 1, 'still there, remembered from the earlier read');
+  assert.strictEqual(said[0].say, 'do it this way instead');
+  assert.strictEqual(after[after.length - 1].tool, 'You', 'oldest, so last in a newest-first list');
 });
 
 test('E48 a session row is titled by the name the chat gave itself', t => {

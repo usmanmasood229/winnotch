@@ -473,21 +473,33 @@ html,body {
    parked at the right-hand end. It fades out at the far side and back in at the
    near one, so the loop reads as another lap and not as a snap back.
 
-   Three animations, not one, on three properties that don't fight: where it is
-   (offset-distance), its hop (transform) and its lean (the standalone rotate).
-   Their periods share no common factor worth the name -- 7.3s, 0.67s, 2.9s --
-   so the combination takes hours to come round again. That is where the
-   not-quite-repeating, alive feel comes from; CSS has no randomness to call. */
+   Four animations across two elements, on properties that don't fight: the
+   walk carries the box, the hop and the lean move the mark inside it. Their
+   periods share no common factor worth the name -- 7.3s, 0.67s, 2.9s -- so the
+   combination takes hours to come round again. That is where the
+   not-quite-repeating, alive feel comes from; CSS has no randomness to call.
+
+   This used to travel on offset-path/offset-distance, which reads better than
+   two nested elements but is not a property the compositor can animate: it
+   repainted the pill every frame, on a window that is transparent and always on
+   top, so every repaint composited the whole thing. Measured, with everything
+   else unchanged, it cost 36% of a core in the GPU process and 24% in the
+   renderer; without it, 20% and 14%. translate, scale, rotate and opacity all
+   animate off the main thread, so the same motion now costs close to nothing.
+   The path was a straight line anyway, which is the only reason this swap is
+   free: a curve would have to go back to offset-path and pay for it. */
 #notch-content.agents:not(.open) #agent-mini-av {
-  position:absolute; left:0; top:0;
-  /* Pill coordinates now (200x29, box inset 11px at the right). The crew is a
-     26px orb plus its count, so it owns roughly the last 42px; the walk stops
-     at 126 to keep the 17px mark clear of it. */
-  offset-path:path('M 16 14.5 H 126');
-  offset-rotate:0deg;
+  /* Spans the pill's height so the mark inside it sits on the centre line. The
+     travel is in pill coordinates (200x29, box inset 11px at the right): the
+     crew is a 26px orb plus its count, owning roughly the last 42px, so the walk
+     stops at 118 to keep the 17px mark clear of it. */
+  position:absolute; left:0; top:0; height:29px;
+  display:flex; align-items:center; justify-content:center;
+  animation:markWalk 7.3s linear infinite;
+}
+#notch-content.agents:not(.open) #agent-mini-av > * {
   transform-origin:50% 85%;   /* the feet, so a squash sits down rather than shrinking */
   animation:
-    markWalk 7.3s  linear                    infinite,
     markHop  0.67s cubic-bezier(.3,0,.45,1)  infinite,
     markLean 2.9s  ease-in-out               infinite;
 }
@@ -495,31 +507,32 @@ html,body {
    mean it hurries, then dawdles, then stops dead for a beat as though something
    caught its eye -- all without a second animation to schedule. */
 @keyframes markWalk {
-  0%   { offset-distance:0%;   opacity:0; }
+  0%   { translate:8px 0;   opacity:0; }
   7%   { opacity:1; }
-  24%  { offset-distance:31%; }
-  31%  { offset-distance:33%; }
-  52%  { offset-distance:46%; }
-  57%  { offset-distance:46%; }
+  24%  { translate:42px 0; }
+  31%  { translate:44px 0; }
+  52%  { translate:59px 0; }
+  57%  { translate:59px 0; }
   93%  { opacity:1; }
-  100% { offset-distance:100%; opacity:0; }
+  100% { translate:118px 0; opacity:0; }
 }
 /* The hop. Squashed wide on the landing, stretched tall off the top: the weight
    is what sells it as a thing walking rather than a sprite sliding sideways. */
 @keyframes markHop {
-  0%   { transform:translateY(0)      scale(1.16, .84); }
-  16%  { transform:translateY(-3.6px) scale(.93, 1.09); }
-  44%  { transform:translateY(-4.8px) scale(1, 1); }
-  72%  { transform:translateY(-1.1px) scale(1.03, .97); }
-  100% { transform:translateY(0)      scale(1.16, .84); }
+  0%   { translate:0 0;      scale:1.16 .84; }
+  16%  { translate:0 -3.6px; scale:.93 1.09; }
+  44%  { translate:0 -4.8px; scale:1 1; }
+  72%  { translate:0 -1.1px; scale:1.03 .97; }
+  100% { translate:0 0;      scale:1.16 .84; }
 }
 /* A slow sway on its own clock, so no two hops land at the same angle. */
 @keyframes markLean {
   0%, 100% { rotate:-8deg; }
   50%      { rotate:8deg; }
 }
-/* Nothing moving, nothing walking. */
-#notch-content.agents:not(.open) .agent-av.bad { animation:none; }
+/* Nothing moving, nothing walking -- the mark inside it included. */
+#notch-content.agents:not(.open) .agent-av.bad,
+#notch-content.agents:not(.open) .agent-av.bad > * { animation:none; }
 #agent-mini-grid { display:flex; align-items:center; gap:4px; }
 #agent-mini-grid canvas { display:block; }
 .ad-more { font:700 9.5px/1 var(--font); color:#8e939c; }
@@ -929,6 +942,35 @@ html,body {
    clamped the way the running narration is. display:block is what turns the
    clamp off -- -webkit-line-clamp only bites on a -webkit-box. */
 .tick-final .tick-say { color:#ffffff; display:block; -webkit-line-clamp:none; }
+
+/* What you said, in among the calls, so the column reads as the exchange it was
+   and not only one side of it. It sits against a rule down the left rather than
+   in a bubble: the column is narrow, and the one thing it has to say is "this
+   came from you, not from the agent". Clamped like the narration, because a
+   pasted prompt can run for pages and the calls under it are the point. */
+.tick-you {
+  position:relative;
+  padding:8px 12px 9px 13px;
+  border-radius:10px;
+  background:rgba(199,97,63,.10);
+  border:1px solid rgba(199,97,63,.24);
+}
+/* The rule down the edge is what the eye catches first in a column of rows; the
+   box is what makes it read as something said rather than something done. */
+.tick-you::before {
+  content:''; position:absolute; left:0; top:9px; bottom:9px;
+  width:2px; border-radius:0 2px 2px 0;
+  background:#c7613f;
+}
+/* Named, because in a column of an agent's own narration an unlabelled block
+   still has to be worked out. */
+.tick-who {
+  font:700 9px/1 var(--font); letter-spacing:.07em; text-transform:uppercase;
+  color:#d8805c; margin-bottom:6px;
+}
+/* Beats .tick-group:not(.done-row), which would otherwise turn the newest one
+   white and lose the distinction exactly when it matters most. */
+.tick-group.tick-you .tick-say { color:#c3c8d1; font-weight:600; -webkit-line-clamp:4; }
 
 /* A call and the thought behind it travel together. */
 .tick-group {
@@ -2633,9 +2675,22 @@ setInterval(poll, 2000);
   const orbs = new Set();          // every canvas currently being painted
   let orbRaf = null;
 
+  // The orbs are the only thing animating while the notch is shut, and the window
+  // they sit on is transparent and always on top, so every frame they paint is a
+  // full composite of it. At the display's own rate that measured 29% of a core in
+  // the renderer and 43% in the GPU process, continuously, with the notch closed.
+  // They are a breathing blob: a third of the rate is not visibly different, and
+  // the drawing is time-based, so slowing it changes nothing but the sampling.
+  const ORB_MS = 50;               // 20fps
+  let orbLast = -Infinity;
+
   function paintOrbs(now) {
     orbRaf = null;
     if (!orbs.size) return;
+    // Still scheduled, just not drawn: a rAF that paints nothing costs nothing to
+    // composite, and keeping it means no visibility change has to restart it.
+    if (now - orbLast < ORB_MS) { orbRaf = requestAnimationFrame(paintOrbs); return; }
+    orbLast = now;
     const t = now / 1000;
     for (const o of orbs) {
       if (!o.canvas.isConnected) { orbs.delete(o); continue; }
@@ -3054,11 +3109,18 @@ setInterval(poll, 2000);
     const row = document.createElement('div');
     row.className = 'tick-row';
 
-    // The closing message has no tool behind it, so it is drawn as the message it
-    // is rather than as a row with an empty command beside a made-up tool name.
-    if (call.tool === 'Done') {
+    // Neither of these has a tool behind it, so they are drawn as the messages
+    // they are rather than as a row with an empty command beside a made-up tool
+    // name. The closing message, and the things you said along the way.
+    if (call.tool === 'Done' || call.tool === 'You') {
       const only = document.createElement('div');
-      only.className = 'tick-group tick-final';
+      only.className = call.tool === 'You' ? 'tick-group tick-you' : 'tick-group tick-final';
+      if (call.tool === 'You') {
+        const who = document.createElement('div');
+        who.className = 'tick-who';
+        who.textContent = 'You';
+        only.appendChild(who);
+      }
       const say = document.createElement('div');
       say.className = 'tick-say';
       writeSay(say, call.say || '');
