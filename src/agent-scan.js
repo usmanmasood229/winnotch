@@ -345,6 +345,9 @@ function readLog(tail) {
       continue;
     }
     const content = rec.message && rec.message.content;
+    // Whether the turn had already ended before this record: then a pending
+    // `say` is that turn's closing message, not narration for a call to come.
+    const wasEnded = ended;
 
     // The marker is checked first because it sits on a user record, which
     // otherwise means the turn carried on.
@@ -380,6 +383,13 @@ function readLog(tail) {
         // A leading '<' is one of the harness's own blocks, and the interrupt line
         // is the trace of pressing Esc, not something that was typed.
         if (said && said[0] !== '<' && !said.startsWith(INTERRUPT)) {
+          // The reply you are answering goes in before what you said. Held to the
+          // end of the log, it landed below your new message, so the panel read
+          // as though the agent had said it in answer to you.
+          if (wasEnded && say) {
+            recent.push({ id: null, tool: 'Done', say, label: '', detail: '', delta: null, diff: null });
+            say = '';
+          }
           recent.push({ id: null, tool: 'You', say: said.slice(0, SAY_MAX),
                         label: '', detail: '', delta: null, diff: null });
         }

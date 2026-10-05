@@ -517,6 +517,23 @@ test('E49 what you typed shows up among the calls', t => {
   assert.strictEqual(recent[1].say, 'stop and install');
 });
 
+// The closing message was held to the end of the log, so the reply you were
+// answering landed below your new message, as though said in answer to it.
+test('E49 the reply you answered sits above your message, not below it', t => {
+  const s = session(t);
+  s.agent('x', [toolUse('Bash', 't1'), stopped('end_turn'), saidByYou('lets write another blog'), toolUse('Read', 't2')]);
+  const recent = s.get('x').recent.slice().reverse();   // oldest first
+  assert.deepStrictEqual(recent.map(c => c.tool), ['Bash', 'Done', 'You', 'Read']);
+  assert.strictEqual(recent[1].say, 'All done.');
+});
+
+test('E49 a reply answered before anything new has run is still shown once, above you', t => {
+  const s = session(t);
+  s.agent('x', [stopped('end_turn'), saidByYou('again')]);
+  const recent = s.get('x').recent.slice().reverse();
+  assert.deepStrictEqual(recent.map(c => c.tool), ['Done', 'You']);
+});
+
 test('E49 a message of yours is not mistaken for the agent narrating', t => {
   const s = session(t);
   s.agent('x', [saidByYou('do the thing'), toolUse('Bash', 't1')]);
