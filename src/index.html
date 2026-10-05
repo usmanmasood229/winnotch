@@ -948,25 +948,19 @@ html,body {
    in a bubble: the column is narrow, and the one thing it has to say is "this
    came from you, not from the agent". Clamped like the narration, because a
    pasted prompt can run for pages and the calls under it are the point. */
+/* The box alone says it came from you: a rule down the edge as well was one
+   marker too many on a block this small. */
 .tick-you {
-  position:relative;
-  padding:8px 12px 9px 13px;
-  border-radius:10px;
-  background:rgba(199,97,63,.10);
-  border:1px solid rgba(199,97,63,.24);
-}
-/* The rule down the edge is what the eye catches first in a column of rows; the
-   box is what makes it read as something said rather than something done. */
-.tick-you::before {
-  content:''; position:absolute; left:0; top:9px; bottom:9px;
-  width:2px; border-radius:0 2px 2px 0;
-  background:#c7613f;
+  padding:9px 12px 10px;
+  border-radius:11px;
+  background:rgba(255,255,255,.055);
+  border:1px solid rgba(255,255,255,.085);
 }
 /* Named, because in a column of an agent's own narration an unlabelled block
    still has to be worked out. */
 .tick-who {
   font:700 9px/1 var(--font); letter-spacing:.07em; text-transform:uppercase;
-  color:#d8805c; margin-bottom:6px;
+  color:#8a9099; margin-bottom:6px;
 }
 /* Beats .tick-group:not(.done-row), which would otherwise turn the newest one
    white and lose the distinction exactly when it matters most. */
@@ -1041,8 +1035,26 @@ html,body {
   background:rgba(255,255,255,.07);
   border:1px solid rgba(255,255,255,.07);
 }
+/* Laid out as a real table so the columns size themselves to what is in them.
+   The cells wrap rather than overflow: the column is ~430px and a table that
+   runs off the side of it is no better than the run of pipes it replaced. */
+.say-table { display:table; width:100%; table-layout:auto; }
+.say-tr { display:table-row; }
+.say-td {
+  display:table-cell; vertical-align:top;
+  padding:3px 9px 3px 0; overflow-wrap:anywhere;
+}
+.say-td:last-child { padding-right:0; }
+.say-table.headed .say-tr:first-child .say-td {
+  font-weight:700; color:#fff;
+  padding-bottom:5px;
+  border-bottom:1px solid rgba(255,255,255,.16);
+}
 .say-p + .say-pre, .say-li + .say-pre, .say-h + .say-pre,
-.say-pre + .say-p, .say-pre + .say-li, .say-pre + .say-pre { margin-top:7px; }
+.say-pre + .say-p, .say-pre + .say-li, .say-pre + .say-pre,
+.say-p + .say-table, .say-li + .say-table, .say-h + .say-table,
+.say-table + .say-p, .say-table + .say-li, .say-table + .say-pre,
+.say-pre + .say-table { margin-top:7px; }
 .tick-group:not(.done-row) .say-pre { color:#fff; }
 
 @keyframes tickIn {
@@ -3225,6 +3237,11 @@ setInterval(poll, 2000);
   // comes off a log and is never handed to the DOM as markup.
   const MD_BULLET = /^\s*(?:[-*•]|\d+\.)\s+/;
   const MD_HEAD   = /^\s*#{1,6}\s+/;
+  // A table row, and the |---|---| rule under its header. Without these a table
+  // came through as one run of pipes across the column, which is unreadable and
+  // was the worst thing a message could contain.
+  const MD_ROW    = /^\s*\|(.*)\|\s*$/;
+  const MD_RULE   = /^[\s:|-]+$/;
   // A fence line: the run of backticks, then whatever follows it. The two are
   // captured separately because both decide things. Opening needs the rest of the
   // line to hold no backtick of its own, which is CommonMark's rule for the
@@ -3242,6 +3259,7 @@ setInterval(poll, 2000);
     let para = null;
     let pre = null;            // the fenced block being filled, when inside one
     let fenceLen = 0;          // how long the run that opened it was
+    let table = null;          // the table being filled, while rows keep coming
     for (const line of lines) {
       const fence = MD_FENCE.exec(line);
       if (pre) {
@@ -3259,9 +3277,35 @@ setInterval(poll, 2000);
         pre.className = 'say-pre';
         fenceLen = fence[1].length;
         host.appendChild(pre);
-        para = null;
+        para = table = null;
         continue;
       }
+      // A run of |…| lines is a table. Laid out as a real one so the columns line
+      // up on their own; the column is narrow, but a cramped table still reads and
+      // a flattened one does not.
+      const cells = MD_ROW.exec(line);
+      if (cells) {
+        if (!table) {
+          table = document.createElement('div');
+          table.className = 'say-table';
+          host.appendChild(table);
+          para = null;
+        }
+        // The rule under the header carries no content, only the fact that the
+        // row above it was a header.
+        if (MD_RULE.test(line)) { table.classList.add('headed'); continue; }
+        const tr = document.createElement('div');
+        tr.className = 'say-tr';
+        for (const cell of cells[1].split('|')) {
+          const td = document.createElement('div');
+          td.className = 'say-td';
+          writeInline(td, cell.trim());
+          tr.appendChild(td);
+        }
+        table.appendChild(tr);
+        continue;
+      }
+      table = null;                                    // any other line ends it
       if (!line.trim()) { para = null; continue; }     // a blank line ends the block
       const bullet = MD_BULLET.exec(line);
       const head   = bullet ? null : MD_HEAD.exec(line);

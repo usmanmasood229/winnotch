@@ -30,6 +30,14 @@ function makeDoc() {
     tag,
     className: '',
     children: [],
+    // Enough of a DOMTokenList for the formatter: it only ever adds.
+    classList: {
+      add(...names) {
+        const have = new Set(String(this.owner.className).split(' ').filter(Boolean));
+        for (const n of names) have.add(n);
+        this.owner.className = [...have].join(' ');
+      },
+    },
     set textContent(v) { this.children = v === '' ? [] : [{ tag: '#text', text: String(v) }]; },
     get textContent() {
       return this.children.map(c => (c.tag === '#text' ? c.text : c.textContent)).join('');
@@ -43,7 +51,7 @@ function makeDoc() {
     get childNodes() { return this.children; },
   });
   return {
-    createElement: tag => node(tag),
+    createElement: tag => { const n = node(tag); n.classList.owner = n; return n; },
     createTextNode: text => ({ tag: '#text', text, get textContent() { return this.text; } }),
   };
 }
@@ -58,9 +66,14 @@ function render(md) {
   // A bare text node means the formatter fell back to printing the raw message,
   // which is a result worth reading in a failure rather than a crash in here.
   return host.children.map(b => ({
-    cls: b.tag === '#text' ? '(raw text)' : b.className,
+    cls: b.tag === '#text' ? '(raw text)' : String(b.className).split(' ')[0],
+    cls2: b.tag === '#text' ? '' : String(b.className),
     text: b.textContent,
     tags: b.tag === '#text' ? ['#text'] : b.children.map(c => c.tag),
+    // A table reads as the grid it is, not as one joined string.
+    rows: b.tag !== '#text' && String(b.className).startsWith('say-table')
+      ? b.children.map(tr => tr.children.map(td => td.textContent))
+      : null,
   }));
 }
 
@@ -268,6 +281,56 @@ test('a long run of lines stays one paragraph per blank-line group', () => {
 // The stub cannot see CSS, so the one property the whole feature rests on is
 // checked against the stylesheet instead: without pre-wrap a fenced block renders
 // as one run-on line in Chromium and every test above still passes.
+// A table used to come through as one run of pipes across the column, which was
+// the worst thing a message could contain.
+test('a table becomes rows and cells, not a run of pipes', () => {
+  const out = render([
+    'Measured:',
+    '',
+    '| | GPU CPU | Total RAM |',
+    '|---|---|---|',
+    '| Before | 35.8% | 679 MB |',
+    '| After | 19% | 464 MB |',
+    '',
+    'Done.',
+  ].join('\n'));
+  assert.deepStrictEqual(out.map(b => b.cls), ['say-p', 'say-table', 'say-p']);
+  const rows = out[1].rows;
+  assert.strictEqual(rows.length, 3, 'the |---| rule is not a row');
+  assert.deepStrictEqual(rows[0], ['', 'GPU CPU', 'Total RAM']);
+  assert.deepStrictEqual(rows[1], ['Before', '35.8%', '679 MB']);
+  assert.deepStrictEqual(rows[2], ['After', '19%', '464 MB']);
+  assert.ok(out[1].cls2.includes('headed'), 'the rule marks the row above as a header');
+});
+
+test('a table with no header rule still renders its rows', () => {
+  const out = render('| a | b |\n| c | d |');
+  assert.deepStrictEqual(out.map(b => b.cls), ['say-table']);
+  assert.deepStrictEqual(out[0].rows, [['a', 'b'], ['c', 'd']]);
+  assert.ok(!out[0].cls2.includes('headed'));
+});
+
+test('cells are formatted, and a pipe inside a fence is not a table', () => {
+  const out = render('| `code` | **bold** |');
+  assert.deepStrictEqual(out[0].rows, [['code', 'bold']]);
+  const fenced = render('```\n| not | a table |\n```');
+  assert.deepStrictEqual(fenced.map(b => b.cls), ['say-pre']);
+  assert.strictEqual(fenced[0].text, '| not | a table |');
+});
+
+test('two tables separated by text do not merge', () => {
+  const out = render('| a |\n\nbetween\n\n| b |');
+  assert.deepStrictEqual(out.map(b => b.cls), ['say-table', 'say-p', 'say-table']);
+  assert.deepStrictEqual(out[0].rows, [['a']]);
+  assert.deepStrictEqual(out[2].rows, [['b']]);
+});
+
+test('a line with pipes that is not a row is left as prose', () => {
+  const out = render('Run a | b to pipe it.');
+  assert.deepStrictEqual(out.map(b => b.cls), ['say-p']);
+  assert.strictEqual(out[0].text, 'Run a | b to pipe it.');
+});
+
 test('the fenced block keeps its line breaks in CSS too', () => {
   const rule = /\.say-pre\s*\{[^}]*\}/.exec(page);
   assert.ok(rule, 'no .say-pre rule in the stylesheet');
