@@ -1,7 +1,7 @@
 'use strict';
 
 const {
-  app, BrowserWindow, ipcMain, screen,
+  app, BrowserWindow, ipcMain, screen, clipboard,
   Tray, Menu, nativeImage, powerMonitor, desktopCapturer
 } = require('electron');
 
@@ -13,6 +13,8 @@ const https = require('https');
 const net   = require('net');
 const crypto = require('crypto');
 const agentScan = require('./agent-scan');
+const sessionPrompt = require('./session-prompt');
+const vscodeSend = require('./vscode-send');
 
 // ── Single instance ───────────────────────────────────────────────────────────
 const gotTheLock = app.requestSingleInstanceLock();
@@ -837,6 +839,42 @@ ipcMain.handle('desktop-shot', async () => {
 // Screen share: Windows puts casting behind Win+K, and there's no API for it,
 // so the shortcut is pressed for the user. The notch window never takes focus,
 // so the panel opens over whatever they were using.
+// The notch's message box: sends your text to that chat in VS Code. The project's
+// window is brought forward (the link lands in whichever VS Code window has
+// focus), the link focuses the chat's tab, and vscode-send.js types the message
+// and presses Enter, checking at every step (see there). If a check fails nothing
+// is typed or sent: the message goes on the clipboard and the notch says so.
+function vsCodeExe() {
+  const roots = [process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Programs'),
+                 process.env.ProgramFiles, process.env['ProgramFiles(x86)']].filter(Boolean);
+  for (const r of roots) {
+    const exe = path.join(r, 'Microsoft VS Code', 'Code.exe');
+    if (fs.existsSync(exe)) return exe;
+  }
+  return null;
+}
+ipcMain.handle('session-prompt', async (_, { sessionId, text } = {}) => {
+  const plan = sessionPrompt.planPrompt(lastAgents, sessionId, text);
+  if (!plan.ok) return plan;
+  if (process.platform !== 'win32') return { ok: false, reason: 'open-failed' };
+  // One script raises the project's window, opens the chat and types it in, in
+  // that order; it runs one at a time and refuses a second ('busy').
+  const r = await vscodeSend.sendToChat({
+    folder: plan.folder, exe: vsCodeExe(), uri: plan.uri, text: plan.text, title: plan.title,
+  });
+  if (r && r.ok) return { ok: true };
+  // Refused for running already: nothing happened to this message.
+  if (r && r.reason === 'busy') return { ok: false, reason: 'busy' };
+  // Not sent. Unless it is already sitting in the box (left), or Enter may have
+  // gone (entered: sending it again would send it twice), hand it over on the
+  // clipboard so it is one paste away rather than lost.
+  let copied = false;
+  if (!(r && (r.left || r.entered))) {
+    try { clipboard.writeText(plan.text); copied = true; } catch {}
+  }
+  return { ok: false, reason: (r && r.reason) || 'not-sent', left: !!(r && r.left), entered: !!(r && r.entered), copied };
+});
+
 ipcMain.handle('open-cast', () => {
   if (process.platform !== 'win32') return false;
   const script = [

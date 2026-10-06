@@ -1154,6 +1154,69 @@ html,body {
 .tick-row .delta .add { color:#34d399; }
 .tick-row .delta .del { color:#f4505e; margin-left:5px; }
 .ap-calls-empty { font:500 9.5px/1.4 var(--font); color:rgba(255,255,255,.35); }
+/* The message box at the foot of the column, shaped like VS Code's own prompt
+   box. Its height (26px button + 8 padding + 2 border + 8 margin) is H_COMPOSE. */
+#ap-compose {
+  flex:0 0 auto; margin:8px 8px 0 0;
+  display:flex; align-items:center; gap:6px;
+  padding:4px 4px 4px 12px; border-radius:12px;
+  background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.09);
+  transition:border-color 150ms ease;
+}
+#ap-compose:focus-within { border-color:rgba(217,119,87,.6); }
+#ap-compose.refused { border-color:#f4505e; }
+#ap-compose-in {
+  flex:1 1 auto; min-width:0;
+  background:transparent; border:none; outline:none; padding:0;
+  color:#e6e9ee; font:500 12.5px/1.4 var(--font);
+  text-overflow:ellipsis;
+}
+#ap-compose-in::placeholder { color:#6b7079; }
+#ap-compose-note { flex:0 0 auto; font:600 10.5px/1 var(--font); color:#ff8d97; }
+#ap-compose-note:empty { display:none; }
+#ap-compose-send {
+  flex:0 0 auto; width:26px; height:26px; padding:0; border:none; border-radius:8px;
+  display:flex; align-items:center; justify-content:center;
+  background:#d97757; color:#fff; cursor:pointer;
+  transition:background 150ms ease, color 150ms ease;
+}
+#ap-compose-send svg { width:13px; height:13px; }
+#ap-compose-send:disabled { background:rgba(255,255,255,.08); color:#5f646d; cursor:default; }
+/* Your message from the box, shown before the chat's log has it: dimmed while
+   it is being sent, then like any other message of yours. */
+.tick-you.pending.sending { opacity:.6; }
+/* Thinking, the way Claude Code shows it: an asterisk that keeps changing shape
+   and a verb with the light running through it, at the foot of the column while
+   no tool is in flight. The glyph sits in the 13px mark slot the rows use, so it
+   lines up with them. Both animations are CSS, so nothing ticks in script. */
+.tick-think {
+  flex:0 0 auto; min-height:20px;
+  display:flex; align-items:center; gap:10px;
+  animation:tickIn 380ms cubic-bezier(.4,0,.2,1) 1;
+}
+.tick-think .glyph {
+  flex:0 0 13px; width:13px; text-align:center;
+  font:600 13px/1 var(--font); color:#d97757;
+}
+.tick-think .glyph::before { content:'✶'; animation:thinkGlyph 1.2s linear infinite; }
+@keyframes thinkGlyph {
+  0%   { content:'·'; }  10% { content:'✢'; }  20% { content:'✳'; }
+  30%  { content:'✶'; }  40% { content:'✻'; }  50% { content:'✽'; }
+  60%  { content:'✻'; }  70% { content:'✶'; }  80% { content:'✳'; }
+  90%  { content:'✢'; }
+}
+.tick-think .verb {
+  font:500 13px/1.45 var(--font);
+  background:linear-gradient(90deg, #c4694b 0%, #ffc2a8 40%, #c4694b 70%);
+  background-size:260% 100%;
+  -webkit-background-clip:text; background-clip:text;
+  color:transparent;
+  animation:shimmer 2.2s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tick-think .glyph::before { animation:none; }
+  .tick-think .verb { animation:none; background:none; color:#d97757; }
+}
 
 /* ── Expanded panel ── */
 /* Stacked, like the reference: art and title across the top, the progress bar
@@ -1656,6 +1719,16 @@ html,body {
             <pre id="ap-read-out"></pre>
           </div>
         </div>
+        <!-- A message for the chat in focus: put into its box in VS Code. -->
+        <form id="ap-compose" autocomplete="off">
+          <input id="ap-compose-in" type="text" maxlength="1500" spellcheck="false"
+                 aria-label="Message this chat in VS Code">
+          <span id="ap-compose-note"></span>
+          <button id="ap-compose-send" type="submit" aria-label="Open in VS Code with this message">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"
+                 stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>
+          </button>
+        </form>
       </div>
     </div>
   </div>
@@ -2058,13 +2131,24 @@ function cancelHoverTimers() {
 // Once it's open the pointer is watched directly: leaving the window while the
 // notch is interactive would otherwise leave it stuck open, swallowing clicks
 // along the whole top of the screen.
+// A message being written in the box holds the panel open, as a waiting prompt
+// does: leaving with the pointer must not throw away what you typed. Escape in
+// the box clears it and lets the panel go.
+function composeHolds() {
+  const ci = document.getElementById('ap-compose-in');
+  // Only while the box is on screen: with the agents panel gone (or the player
+  // showing) it can't be seen or cleared, and holding then would never let go.
+  const shown = contEl.classList.contains('agents') && !contEl.classList.contains('music');
+  return !!ci && shown && (ci.value.trim() !== '' || (document.activeElement === ci && document.hasFocus()));
+}
+
 function watchPointer() {
   clearInterval(watchTimer);
   watchTimer = setInterval(async () => {
     if (!isOpen) { clearInterval(watchTimer); watchTimer = null; return; }
     // A blocked session is waiting on an answer: the panel stays until it gets
     // one, however far the pointer has wandered.
-    if (contEl.classList.contains('perm')) { clearTimeout(graceTimer); graceTimer = null; return; }
+    if (contEl.classList.contains('perm') || composeHolds()) { clearTimeout(graceTimer); graceTimer = null; return; }
     if (overNotch(await window.api?.cursorPoint?.())) { clearTimeout(graceTimer); graceTimer = null; return; }
     if (!graceTimer) graceTimer = setTimeout(() => { graceTimer = null; hoverClose(); }, HOVER_GRACE_MS);
   }, HOVER_POLL_MS);
@@ -2072,6 +2156,7 @@ function watchPointer() {
 
 function hoverClose() {
   if (contEl.classList.contains('perm')) return;   // not while something is waiting
+  if (composeHolds()) return;                      // nor while a message is being written
   cancelHoverTimers();
   openedByHover = false;
   closeNotch();
@@ -2596,6 +2681,139 @@ setInterval(poll, 2000);
   const whereEl = document.getElementById('ap-where');
   const nameEl  = document.getElementById('ap-name');
   const mainEl  = document.getElementById('ap-main');
+
+  // ── the message box ──
+  // Sends to the chat in focus (the session row, or the session that started the
+  // agent in focus): main.js brings that chat forward in VS Code and types it in,
+  // with checks (vscode-send.js). "Sent" is only said when VS Code's box emptied
+  // on Enter; otherwise it says where the message is (clipboard, or still in VS
+  // Code's box) and why.
+  const composeEl   = document.getElementById('ap-compose');
+  const composeIn   = document.getElementById('ap-compose-in');
+  const composeNote = document.getElementById('ap-compose-note');
+  const composeSend = document.getElementById('ap-compose-send');
+  let composeTo = null;     // { sessionId, title, vscode } for the chat in focus
+  let composeHint = '';     // the last outcome, kept as the placeholder until the chat changes
+  // The message just sent, shown in the history before the chat's log has it
+  // (syncTicker): { sessionId, text, state: 'sending' | 'sent' }.
+  let composePending = null, composePendingTimer = null;
+  // A send in flight: Send stays off until it settles, whatever re-renders.
+  let composeBusy = false;
+  const normSay = s => String(s || '').replace(/\s+/g, ' ').trim();
+  // How many messages of yours with this text the chat's history shows now, so
+  // a repeat ("continue", "yes") only counts as arrived once there is one more.
+  function saidCount(recent, text) {
+    return (recent || []).filter(c => c.tool === 'You' && normSay(c.say) === normSay(text)).length;
+  }
+  function saidCountNow(sessionId, text) {
+    const sess = lastSnap && Array.isArray(lastSnap.sessions) && lastSnap.sessions.find(s => s.sessionId === sessionId);
+    const head = sess && sess.agents.find(a => a.isSession);
+    return saidCount(head && head.recent, text);
+  }
+  function setPending(next) {
+    composePending = next;
+    clearTimeout(composePendingTimer);
+    // If the log never shows it (say the session ended), it doesn't linger.
+    if (next) composePendingTimer = setTimeout(() => { composePending = null; if (lastSnap) render(lastSnap); }, 90000);
+    if (lastSnap) render(lastSnap);
+  }
+  const COMPOSE_REFUSED = {
+    'too-long': 'too long', 'not-live': 'chat has closed', 'not-vscode': 'not a VS Code chat',
+    'bad-folder': 'unknown folder', 'open-failed': "couldn't open VS Code",
+    // From typing it in (vscode-send.js): nothing was typed, or it was left unsent.
+    'no-window': 'project not open in VS Code',
+    'busy': 'already sending one', 'no-title': 'chat has no name yet',
+    'ambiguous-chat': 'two chats share this name', 'ambiguous-window': 'two windows match',
+    'unconfirmed': 'took too long after Enter',
+    'not-vscode-front': "VS Code didn't come up", 'no-box': 'chat box not focused',
+    'wrong-chat': 'other chat in front', 'draft': 'its box had text',
+    'type-failed': "couldn't type", 'focus-moved': 'focus moved', 'not-sent': "Enter didn't send",
+    'timeout': 'took too long', 'script-failed': "couldn't type", 'no-powershell': "couldn't type",
+  };
+  function setRefused(why) {
+    composeNote.textContent = why || '';
+    composeEl.classList.toggle('refused', !!why);
+  }
+  function syncCompose(focus, sessions) {
+    const sess = focus && sessions.find(s => s.agents.some(a => a.id === focus.id));
+    const head = sess && sess.agents.find(a => a.isSession);
+    const to = sess ? { sessionId: sess.sessionId, vscode: sess.entrypoint === 'claude-vscode',
+                        title: (head && head.description) || sess.name || 'this chat' } : null;
+    if ((to && to.sessionId) !== (composeTo && composeTo.sessionId)) { composeHint = ''; setRefused(''); }
+    composeTo = to;
+    const ok = !!(to && to.vscode);
+    composeSend.disabled = !ok || composeBusy;
+    // Not disabled outright when the chat can't be reached: a draft stays
+    // editable, and the placeholder says why it won't go.
+    // And read-only while a send runs: anything typed then would be lost when
+    // the first one settles and the box is cleared or refilled.
+    composeIn.readOnly = composeBusy || (!ok && !composeIn.value);
+    composeIn.placeholder = !to ? 'No chat in focus'
+      : !to.vscode ? 'Only chats open in VS Code can be messaged'
+      : composeHint || 'Message "' + to.title + '"…';
+  }
+  composeEl.addEventListener('click', e => e.stopPropagation());
+  composeIn.addEventListener('input', () => setRefused(''));
+  composeIn.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { composeIn.value = ''; setRefused(''); composeIn.blur(); }
+  });
+  composeEl.addEventListener('submit', async e => {
+    e.preventDefault();
+    e.stopPropagation();
+    const text = composeIn.value.trim();
+    if (!text || composeSend.disabled || !composeTo || !composeTo.vscode) return;
+    const to = composeTo;
+    composeBusy = true;
+    composeSend.disabled = true;
+    setRefused('');
+    // Shown now, under the chat it went to: the session's own row takes focus.
+    composeIn.value = '';
+    picked = 'self:' + to.sessionId;
+    setPending({ sessionId: to.sessionId, text, state: 'sending', base: saidCountNow(to.sessionId, text) });
+    let r;
+    try { r = await window.api.sendToChat(to.sessionId, text); }
+    catch { r = { ok: false, reason: 'open-failed' }; }
+    composeBusy = false;
+    // Enter went but the send was never confirmed: it may well be in the chat,
+    // so it is neither shown as yours-pending nor handed back for a second send.
+    const maybe = !!(r && !r.ok && r.entered);
+    if (r && r.ok) {
+      if (composePending && composePending.text === text) setPending({ ...composePending, state: 'sent' });
+    } else if (composePending && composePending.text === text) {
+      setPending(null);
+    }
+    // The outcome belongs to the chat it was sent to. If focus moved to another
+    // chat meanwhile, go back to this one rather than show the result, or put
+    // the text back, under a box that now writes somewhere else.
+    if (composeTo && composeTo.sessionId !== to.sessionId) {
+      picked = 'self:' + to.sessionId;
+      if (lastSnap) render(lastSnap);
+    }
+    const here = !!(composeTo && composeTo.sessionId === to.sessionId);
+    const why = COMPOSE_REFUSED[r && r.reason] || 'not sent';
+    // Where the message ended up decides what the box says.
+    const hint = r && r.ok ? 'Sent to "' + to.title + '"'
+               : maybe ? 'May have sent: check the chat in VS Code'
+               : r && r.copied ? 'Copied: press Ctrl+V, Enter in VS Code'
+               : r && r.left ? "In VS Code's box: press Enter there"
+               : null;
+    if (hint) {
+      composeIn.blur();
+      if (here) {
+        composeHint = hint;
+        composeIn.placeholder = hint;
+        if (!r.ok) setRefused(why);
+      }
+    } else if (here || !composeTo) {
+      // Refused before anything happened (too long, chat closed): the text goes
+      // back, into its own chat's box or, with that chat gone, into a box that
+      // can't send, so it can still be copied out.
+      composeIn.value = text;
+      setRefused(why);
+    }
+    composeSend.disabled = !(composeTo && composeTo.vscode);
+    composeIn.readOnly = !(composeTo && composeTo.vscode) && !composeIn.value;
+  });
   const dFile   = document.getElementById('ap-diff-file');
   const dPath   = document.getElementById('ap-diff-path');
   const dBody   = document.getElementById('ap-diff-body');
@@ -3394,6 +3612,7 @@ setInterval(poll, 2000);
     // Rows keep their identity between snapshots, so when a new call lands the
     // existing ones slide up instead of the whole column redrawing.
     nameEl.textContent = focus ? focus.description : '';
+    syncCompose(focus, sessions);
 
     // The newest call decides what the right-hand side shows: the code, when it
     // just wrote some, and the running ticker otherwise.
@@ -3412,6 +3631,8 @@ setInterval(poll, 2000);
   // The panel is sized to what it actually holds. A fixed height left most of the
   // card empty whenever an agent had only a couple of calls behind it.
   const H_HEAD = 34, H_PAD = 30, H_ROW = 22;
+  // The message box under the column (#ap-compose): 26 + 8 + 2 + 8 margin.
+  const H_COMPOSE = 44;
   // Arithmetic rather than measurement: scrollHeight through two nested flex
   // columns reported the column as a third of its real size, and the panel then
   // opened too short for its own contents. (The panel is display:none until it
@@ -3467,7 +3688,7 @@ setInterval(poll, 2000);
     // instead of guessing a row height: a closing message runs to any length and
     // the guess would leave it to be scrolled for. Still capped below.
     const rows = hasDiff ? 238 : Math.max(Math.max(callCount, 2) * H_ROW + 4, callsEl.scrollHeight);
-    const right = rows + H_PAD + H_HEAD;
+    const right = rows + H_PAD + H_HEAD + H_COMPOSE;
     return Math.round(Math.min(420, Math.max(128, left, right)));
   }
   function setPanelHeight(h) {
@@ -3585,7 +3806,9 @@ setInterval(poll, 2000);
       if (call.tool === 'You') {
         const who = document.createElement('div');
         who.className = 'tick-who';
-        who.textContent = 'You';
+        // Sent from the notch's box and not in the chat's log yet (composePending).
+        who.textContent = call.pending === 'sending' ? 'You · sending' : 'You';
+        if (call.pending) only.classList.add('pending', call.pending);
         only.appendChild(who);
       }
       const say = document.createElement('div');
@@ -3842,20 +4065,59 @@ setInterval(poll, 2000);
     }
   }
 
+  // The word under the asterisk while it thinks. One is picked when a thinking
+  // stretch starts and kept until it ends, so it does not flicker on every
+  // snapshot. In the spirit of Claude Code's own; not its exact list.
+  const THINK_VERBS = ['Simmering', 'Channeling', 'Pondering', 'Mulling', 'Brewing',
+    'Percolating', 'Noodling', 'Ruminating', 'Musing', 'Cogitating', 'Conjuring',
+    'Marinating', 'Tinkering', 'Puzzling', 'Scheming', 'Concocting', 'Deliberating'];
+  let thinkVerb = '', thinkFor = null;
+  function thinkRow() {
+    const el = document.createElement('div');
+    el.className = 'tick-think';
+    const glyph = document.createElement('span');
+    glyph.className = 'glyph';
+    const verb = document.createElement('span');
+    verb.className = 'verb';
+    verb.textContent = thinkVerb + '…';
+    el.append(glyph, verb);
+    return el;
+  }
+
   // Oldest at the top, newest at the bottom; the newest is the live one. The
   // column scrolls, so nothing is dropped just because the panel is short.
   function syncTicker(focus) {
     const calls = ((focus && focus.recent) || []).slice().reverse();   // oldest first
+    // What you just sent from the box shows at once, not when the chat's log next
+    // has it: as "sending" while it goes, then plain. Once the log carries one
+    // more message with that text than it did at the send, the log's entry shows
+    // and this one is dropped.
+    const p = composePending;
+    if (p && focus && focus.id === 'self:' + p.sessionId) {
+      if (saidCount(calls, p.text) > (p.base || 0)) composePending = null;
+      else calls.push({ id: null, tool: 'You', say: p.text, label: '', detail: '', pending: p.state });
+    }
+    // Running with no tool in flight: the model is thinking (orbStateFor's rule).
+    const thinking = !!focus && focus.state === 'running' && orbStateFor(focus) === ORB_THINKING;
     // Everything a row draws from, or a filled-in output never reaches the DOM
-    // and the closure keeps serving the empty one it was built with.
-    const key = (focus ? focus.id + ':' + focus.state + ':' : '') + calls.map(c =>
-      [c.tool, c.label || '', c.say || '', c.detail || '',
+    // and the closure keeps serving the empty one it was built with. Thinking is
+    // in it too: an empty result arriving changes nothing else here ('' and no
+    // output both measure 0), so it would never have shown.
+    const key = (focus ? focus.id + ':' + focus.state + ':' + thinking + ':' : '') + calls.map(c =>
+      [c.tool, c.label || '', c.say || '', c.detail || '', c.pending || '',
        (c.output || '').length, c.failed ? 1 : 0,
        c.delta ? c.delta.added + '/' + c.delta.removed : ''].join('|')
     ).join('>');
     if (key === tickKey) return;     // nothing moved
     if (openCall) openRow(null);     // the list moved under the open line
     tickKey = key;
+
+    // A new verb only when a thinking stretch starts (or the focus moves).
+    if (thinking && thinkFor !== focus.id) {
+      const pool = THINK_VERBS.filter(v => v !== thinkVerb);
+      thinkVerb = pool[Math.floor(Math.random() * pool.length)];
+    }
+    thinkFor = thinking ? focus.id : null;
 
     // Stick to the newest unless you have deliberately scrolled back. Opening on
     // the oldest call meant scrolling down every time just to see what is
@@ -3865,6 +4127,8 @@ setInterval(poll, 2000);
 
     callsEl.textContent = '';
     if (!calls.length) {
+      // Nothing has run yet but it is working: that is thinking too.
+      if (thinking) { callsEl.appendChild(thinkRow()); return; }
       const e = document.createElement('div');
       e.className = 'ap-calls-empty';
       e.textContent = focus ? 'starting up...' : 'nothing running';
@@ -3880,7 +4144,9 @@ setInterval(poll, 2000);
       // of the column half-built.
       const row = node.classList.contains('tick-group')
         ? node.querySelector('.tick-row') : node;
-      const done = i !== newest || focus.state !== 'running';
+      // While thinking the newest call has finished: it reads as done, and the
+      // thinking line below it is the live one.
+      const done = i !== newest || focus.state !== 'running' || thinking;
       if (row) {
         row.classList.toggle('done-row', done);
         row.classList.toggle('live', !done);
@@ -3892,6 +4158,7 @@ setInterval(poll, 2000);
       if (i !== newest) node.style.animation = 'none';
       callsEl.appendChild(node);
     });
+    if (thinking) callsEl.appendChild(thinkRow());
     if (stick) { callsEl.scrollTop = callsEl.scrollHeight; tickFollow = true; }
   }
 

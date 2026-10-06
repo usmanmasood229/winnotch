@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld('api', {
   openCast:    ()            => ipcRenderer.invoke('open-cast'),
   desktopShot: ()            => ipcRenderer.invoke('desktop-shot'),
   agentsNow:   ()            => ipcRenderer.invoke('agents-now'),
+  // Put text into a VS Code chat's box: { ok } or { ok:false, reason }.
+  sendToChat:  (sessionId, text) => ipcRenderer.invoke('session-prompt', { sessionId, text }),
   onAgents:    (fn)          => {
     const handler = (_e, snap) => fn(snap);
     ipcRenderer.on('agents', handler);

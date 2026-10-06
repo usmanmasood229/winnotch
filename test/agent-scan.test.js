@@ -596,6 +596,45 @@ test('E49 activity is the newest tool, never You or Done', t => {
   assert.strictEqual(s.get('x').activity, 'Bash');
 });
 
+// Sent while the agent works, a message is queued and logged as an attachment.
+const queued = (text, kind = 'human') => ({ type: 'attachment', attachment: {
+  type: 'queued_command', commandMode: kind === 'human' ? 'prompt' : kind, origin: { kind },
+  prompt: kind === 'task-notification' ? undefined : [{ type: 'text', text }] } });
+
+test('E49 a message queued while the agent works is yours, in order', t => {
+  const s = session(t);
+  s.selfLog([toolUse('Bash', 't1'), queued('also check the footer'), toolUse('Read', 't2')]);
+  const recent = s.self().recent.slice().reverse();
+  assert.deepStrictEqual(recent.map(c => c.tool), ['Bash', 'You', 'Read']);
+  assert.strictEqual(recent[1].say, 'also check the footer');
+});
+
+test('E49 a queued message logged as a plain string is yours too', t => {
+  const s = session(t);
+  const plain = queued('x');
+  plain.attachment.prompt = 'run it again';
+  s.selfLog([toolUse('Bash', 't1'), plain]);
+  assert.deepStrictEqual(s.self().recent.filter(c => c.tool === 'You').map(c => c.say), ['run it again']);
+});
+
+test('E49 queued messages from other sessions or the harness are not yours', t => {
+  const s = session(t);
+  s.selfLog([toolUse('Bash', 't1'), queued('from api-worker', 'peer'), queued('', 'task-notification'), toolUse('Read', 't2')]);
+  assert.deepStrictEqual(s.self().recent.filter(c => c.tool === 'You'), []);
+});
+
+test('E49 a subagent\'s queued messages are not shown as yours', t => {
+  const s = session(t);
+  s.agent('x', [toolUse('Bash', 't1'), queued('handed down'), toolUse('Read', 't2')]);
+  assert.deepStrictEqual(s.get('x').recent.filter(c => c.tool === 'You'), []);
+});
+
+// The message box reaches only VS Code chats, and knows them by this field.
+test('a session says where it lives (entrypoint), and a missing one is null', t => {
+  assert.strictEqual(session(t, { entrypoint: 'claude-vscode' }).read().entrypoint, 'claude-vscode');
+  assert.strictEqual(session(t).read().entrypoint, null);
+});
+
 test('E49 harness blocks and the interrupt line are not messages', t => {
   const s = session(t);
   s.selfLog([

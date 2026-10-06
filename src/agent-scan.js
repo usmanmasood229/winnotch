@@ -361,6 +361,25 @@ function readLog(tail, fromYou) {
     // `say` is that turn's closing message, not narration for a call to come.
     const wasEnded = ended;
 
+    // A message you send while the agent is working is queued, and logged as an
+    // attachment rather than a user record: queued_command, origin human. The
+    // same record type also carries messages from your other sessions (origin
+    // peer) and the harness's task notices, which are not you.
+    const att = rec.type === 'attachment' && rec.attachment;
+    if (att && att.type === 'queued_command') {
+      // The prompt is usually an array of blocks, sometimes a plain string.
+      const blocks = typeof att.prompt === 'string' ? [{ type: 'text', text: att.prompt }] : att.prompt;
+      if (fromYou && att.origin && att.origin.kind === 'human' && Array.isArray(blocks)) {
+        const said = blocks.filter(b => b && b.type === 'text' && typeof b.text === 'string')
+          .map(b => b.text).join('\n').trim();
+        if (said && said[0] !== '<' && !said.startsWith(INTERRUPT)) {
+          recent.push({ id: null, tool: 'You', say: said.slice(0, SAY_MAX),
+                        label: '', detail: '', delta: null, diff: null });
+        }
+      }
+      continue;
+    }
+
     // The marker is checked first because it sits on a user record, which
     // otherwise means the turn carried on.
     if (rec.toolEndsTurn === true) ended = true;
@@ -605,6 +624,9 @@ function readSession(file, now, seen) {
     name: strOrNull(s.name) || s.sessionId.slice(0, 8),
     cwd,
     project: cwd ? path.basename(cwd) : null,
+    // Where the chat lives: 'claude-vscode' for the VS Code panel. The notch's
+    // message box only reaches those (see session-prompt.js).
+    entrypoint: strOrNull(s.entrypoint),
     status: strOrNull(s.status),
     version: strOrNull(s.version),
     pid: s.pid,
