@@ -653,7 +653,12 @@ html,body {
 #notch-content.agents.open.music #agents-panel {
   padding-bottom:0;
   width:var(--panel-w); margin-left:calc(var(--panel-w) / -2);
+  /* It sits above the player (z-index 4) with its card hidden, so it would take
+     every click meant for the controls under it. Clicks go through it, except
+     on the tab strip, which is still how you get back. */
+  pointer-events:none;
 }
+#notch-content.agents.open.music #ap-head { pointer-events:all; }
 #notch-content.agents.open.music #ap-count,
 #notch-content.agents.open.music #ap-where { display:none; }
 /* The glass stays. It refracts behind the cards, and the cards themselves are
